@@ -58,7 +58,7 @@ for DB in $DATABASES; do
 
     log "  ▶ Memproses: ${DB}"
 
-    if ! mysqldump -u"$DB_USER" -p"$DB_PASS" "$DB" 2>>"$LOG_FILE" > "$TEMP_SQL"; then
+    if ! mysqldump --skip-dump-date -u"$DB_USER" -p"$DB_PASS" "$DB" 2>>"$LOG_FILE" > "$TEMP_SQL"; then
         log "  ✗ Gagal dump: ${DB}"
         SUMMARY+=("❌ <b>${DB}</b>: Dump gagal")
         COUNT_FAIL=$((COUNT_FAIL + 1))
