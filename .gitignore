@@ -26,3 +26,6 @@ backups/
 
 # Config Files (Hati-hati jika backup.conf berisi password)
 backup.conf
+
+
+wa-bot/node_modules/
