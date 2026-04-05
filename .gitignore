@@ -1,0 +1,28 @@
+# Security & Credentials
+.ssh/
+.gnupg/
+.pki/
+.gitconfig
+
+# System & History
+.bash_history
+.mariadb_history
+.lesshst
+.selected_editor
+.profile
+.bashrc
+
+# Folders/Apps
+.cache/
+.config/
+.local/
+.npm/
+.nvm/
+.pm2/
+.filemin/
+.tmp/
+Maildir/
+backups/
+
+# Config Files (Hati-hati jika backup.conf berisi password)
+backup.conf
