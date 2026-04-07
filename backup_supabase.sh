@@ -55,7 +55,10 @@ for DB_ID in "${DB_INSTANCES[@]}"; do
 
     log "  ▶ Memproses: ${DB_ID}"
 
-    CONTAINER=$(docker ps --format '{{.Names}}' | grep "^${DB_ID}-db" | head -n 1)
+    CONTAINER_PREFIX="${DB_ID}-db"
+    if [[ "$DB_ID" == "db1" ]]; then CONTAINER_PREFIX="supabase-db"; fi
+    CONTAINER=$(docker ps --format '{{.Names}}' | grep "^${CONTAINER_PREFIX}" | head -n 1)
+    
     if [[ -z "$CONTAINER" ]]; then
         log "  ✗ Container ${DB_ID} tidak ditemukan (Offline?)"
         SUMMARY+=("❌ <b>${DB_ID}</b>: Container offline")
@@ -75,32 +78,69 @@ for DB_ID in "${DB_INSTANCES[@]}"; do
     OLD_HASH=$(cat "$HASH_FILE" 2>/dev/null || echo "")
 
     if [[ "$NEW_HASH" == "$OLD_HASH" ]]; then
-        log "  ⏩ Tidak ada perubahan: ${DB_ID}"
-        SUMMARY+=("⏩ <b>${DB_ID}</b>: Tidak ada perubahan")
+        log "  ⏩ Tidak ada perubahan DB: ${DB_ID}"
+        SUMMARY+=("⏩ <b>${DB_ID} (DB)</b>: Tidak ada perubahan")
         COUNT_SKIP=$((COUNT_SKIP + 1))
         rm -f "$TEMP_SQL"
-        continue
-    fi
-
-    gzip -c "$TEMP_SQL" > "$BACKUP_FILE"
-    rm -f "$TEMP_SQL"
-    echo "$NEW_HASH" > "$HASH_FILE"
-
-    SIZE=$(du -sh "$BACKUP_FILE" | awk '{print $1}')
-    log "  ✓ Backup baru: ${DB_ID} (${SIZE})"
-    SUMMARY+=("💾 <b>${DB_ID}</b>: ${SIZE}")
-    COUNT_NEW=$((COUNT_NEW + 1))
-
-    BYTES=$(stat -c%s "$BACKUP_FILE" 2>/dev/null)
-    if [[ "${BYTES:-0}" -lt 52428800 ]]; then
-        tg_file "$BACKUP_FILE" "🐘 <b>Supabase</b> | <code>${DB_ID}</code> | ${TODAY}"
     else
-        SUMMARY+=("   ⚠️ File >50MB, hanya notifikasi")
+        gzip -c "$TEMP_SQL" > "$BACKUP_FILE"
+        rm -f "$TEMP_SQL"
+        echo "$NEW_HASH" > "$HASH_FILE"
+
+        SIZE=$(du -sh "$BACKUP_FILE" | awk '{print $1}')
+        log "  ✓ Backup DB baru: ${DB_ID} (${SIZE})"
+        SUMMARY+=("💾 <b>${DB_ID} (DB)</b>: ${SIZE}")
+        COUNT_NEW=$((COUNT_NEW + 1))
+
+        BYTES=$(stat -c%s "$BACKUP_FILE" 2>/dev/null)
+        if [[ "${BYTES:-0}" -lt 52428800 ]]; then
+            tg_file "$BACKUP_FILE" "🐘 <b>DB Backup</b> | <code>${DB_ID}</code> | ${TODAY}"
+        else
+            SUMMARY+=("   ⚠️ DB >50MB, hanya notifikasi")
+        fi
     fi
+
+    # Backup Edge Functions & Secrets (.env)
+    VPS_DOCKER_DIR="/home/supabase/domains/${DB_ID}.supabase.fezora.net/docker"
+    VPS_FUNCTIONS_DIR="${VPS_DOCKER_DIR}/volumes/functions"
+    FUNC_BACKUP_FILE="${DB_DIR}/${DB_ID}_functions_${TIMESTAMP}.tar.gz"
+
+    if [ -d "$VPS_FUNCTIONS_DIR" ]; then
+        log "  ▶ Mem-backup Functions & Secrets: ${DB_ID}"
+        tar -czf "$FUNC_BACKUP_FILE" -C "$VPS_DOCKER_DIR/volumes" functions 2>>"$LOG_FILE"
+        SIZE_FUNC=$(du -sh "$FUNC_BACKUP_FILE" | awk '{print $1}')
+        SUMMARY+=("📦 <b>${DB_ID} (Func)</b>: ${SIZE_FUNC}")
+        
+        BYTES_FUNC=$(stat -c%s "$FUNC_BACKUP_FILE" 2>/dev/null)
+        if [[ "${BYTES_FUNC:-0}" -lt 52428800 ]]; then
+            tg_file "$FUNC_BACKUP_FILE" "⚡ <b>Functions & Secrets</b> | <code>${DB_ID}</code> | ${TODAY}"
+        else
+            SUMMARY+=("   ⚠️ Func >50MB (tidak dikirim)")
+        fi
+    fi
+
+    # Backup Storage Files
+    VPS_STORAGE_DIR="${VPS_DOCKER_DIR}/volumes/storage"
+    STORAGE_BACKUP_FILE="${DB_DIR}/${DB_ID}_storage_${TIMESTAMP}.tar.gz"
+
+    if [ -d "$VPS_STORAGE_DIR" ]; then
+        log "  ▶ Mem-backup Storage Files: ${DB_ID}"
+        tar -czf "$STORAGE_BACKUP_FILE" -C "$VPS_DOCKER_DIR/volumes" storage 2>>"$LOG_FILE"
+        SIZE_STORAGE=$(du -sh "$STORAGE_BACKUP_FILE" | awk '{print $1}')
+        SUMMARY+=("🗂 <b>${DB_ID} (Storage)</b>: ${SIZE_STORAGE}")
+        
+        BYTES_STORAGE=$(stat -c%s "$STORAGE_BACKUP_FILE" 2>/dev/null)
+        if [[ "${BYTES_STORAGE:-0}" -lt 52428800 ]]; then
+            tg_file "$STORAGE_BACKUP_FILE" "🗂 <b>Storage Files</b> | <code>${DB_ID}</code> | ${TODAY}"
+        else
+            SUMMARY+=("   ⚠️ Storage >50MB (tidak dikirim)")
+        fi
+    fi
+
 done
 
 # --- HAPUS BACKUP LAMA ---
-find "$BACKUP_DIR" -name "*.sql.gz" -mtime +"$RETENTION_DAYS" -delete 2>>"$LOG_FILE"
+find "$BACKUP_DIR" -type f \( -name "*.sql.gz" -o -name "*.tar.gz" \) -mtime +"$RETENTION_DAYS" -delete 2>>"$LOG_FILE"
 log "  🗑 Backup lama (>${RETENTION_DAYS} hari) dibersihkan."
 
 # --- 4. HAPUS LOG LAMA ---
