@@ -56,7 +56,6 @@ for DB_ID in "${DB_INSTANCES[@]}"; do
     log "  ▶ Memproses: ${DB_ID}"
 
     CONTAINER_PREFIX="${DB_ID}-db"
-    if [[ "$DB_ID" == "db1" ]]; then CONTAINER_PREFIX="supabase-db"; fi
     CONTAINER=$(docker ps --format '{{.Names}}' | grep "^${CONTAINER_PREFIX}" | head -n 1)
     
     if [[ -z "$CONTAINER" ]]; then
