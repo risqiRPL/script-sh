@@ -12,7 +12,6 @@
   "type": "module",
   "dependencies": {
     "dotenv": "^17.4.1",
-    "node-fetch": "^3.3.2",
-    "p-retry": "^8.0.0"
+    "node-fetch": "^3.3.2"
   }
 }

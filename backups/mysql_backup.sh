@@ -4,7 +4,11 @@
 # ============================================================
 
 # --- 5. KONFIGURASI TERPUSAT ---
-if [ -f /root/backup.conf ]; then source /root/backup.conf; fi
+if [ -f "$(dirname "$0")/backup.conf" ]; then source "$(dirname "$0")/backup.conf"; fi
+
+# Default credentials (akan ditimpa jika ada di backup.conf)
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-613594704:AAGIgoPgUdIqX7v4tS8VHPdr2ewzNhsrrBQ}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:--1001491708403}"
 
 # Default values if config not found
 DB_USER="${DB_USER:-root}"

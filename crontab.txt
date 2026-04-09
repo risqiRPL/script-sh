@@ -1,20 +1,29 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  FEZORA SERVER CRONTAB
+#  FEZORA SERVER CRONTAB (PRO-MODE)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # ── 1. DATABASE BACKUPS ──
 # Supabase Backup (Setiap jam 12:00 dan 20:00)
-0 12,20 * * * /bin/bash /root/backups/supabase_backup.sh >> /root/backups/logs/cron.log 2>&1
+0 12,20 * * * /bin/bash /root/script-sh/backups/supabase_backup.sh >> /root/script-sh/backups/logs/cron.log 2>&1
 
 # MySQL Backup (Setiap jam 12:00 dan 20:00)
-0 12,20 * * * /bin/bash /root/backups/mysql_backup.sh >> /root/backups/logs/cron.log 2>&1
+0 12,20 * * * /bin/bash /root/script-sh/backups/mysql_backup.sh >> /root/script-sh/backups/logs/cron.log 2>&1
 
 
 # ── 2. VPS MONITORING ──
 # Diambil alih oleh Node.js Monitor (PM2)
-# Tidak perlu Cron Job lagi untuk bagian ini.
+# Tidak perlu Cron Job lagi untuk bagian ini (Self-managed Daemon).
 
 
-# ── 3. MAINTENANCE ──
+# ── 3. CUSTOM APPS (E-Presensi) ──
+# Absen Pagi: 06:00 - 09:59 (Setiap 5 menit)
+*/5 6-9 * * * /usr/bin/php /home/satelliteorbit/public_html/program/E-Presensi/cronjob.php >> /home/satelliteorbit/public_html/program/E-Presensi/cron.log 2>&1
+
+# Absen Sore: 14:30 - 18:00 (Setiap 5 menit)
+30-59/5 14 * * * /usr/bin/php /home/satelliteorbit/public_html/program/E-Presensi/cronjob.php >> /home/satelliteorbit/public_html/program/E-Presensi/cron.log 2>&1
+*/5 15-18 * * * /usr/bin/php /home/satelliteorbit/public_html/program/E-Presensi/cronjob.php >> /home/satelliteorbit/public_html/program/E-Presensi/cron.log 2>&1
+
+
+# ── 4. MAINTENANCE ──
 # Hapus log lama > 30 hari
-0 3 * * * find /root/backups/logs -name "*.log" -mtime +30 -delete
+0 3 * * * find /root/script-sh/backups/logs -name "*.log" -mtime +30 -delete
