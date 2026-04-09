@@ -102,7 +102,7 @@
     "CPU": 80,
     "RAM": 85,
     "DISK": 85,
-    "CPU_ALERT_MIN_COUNT": 2,
+    "CPU_ALERT_MIN_COUNT": 5,
     "SSL_WARN_DAYS": 14,
     "RESPONSE_WARN_MS": 5000
   },
