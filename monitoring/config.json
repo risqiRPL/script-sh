@@ -91,6 +91,13 @@
     "siperda.satelliteorbit.cloud",
     "siperda-staging.satelliteorbit.cloud"
   ],
+  "WA_API": {
+    "name": "Robot WA (robot-wa.js)",
+    "url": "http://localhost:8000",
+    "ignore_devices": [
+      "device-1771507462436-cr36o0miy"
+    ]
+  },
   "THRESHOLDS": {
     "CPU": 80,
     "RAM": 85,

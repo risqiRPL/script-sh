@@ -12,6 +12,8 @@ let config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
 let state = {
     endpoints: {},
     services: {},
+    wa_devices: {},         // track WA device states
+    wa_server_up: true,     // track WA server status
     resources: {
         cpu:  { last_alert: 0, is_high: false },
         ram:  { last_alert: 0, is_high: false },
@@ -63,6 +65,60 @@ async function sendTelegram(message) {
 }
 
 // --- CHECKERS ---
+
+// WhatsApp Bot Monitor
+async function checkWhatsApp() {
+    if (!config.WA_API) return;
+    log('📱 Checking WhatsApp Devices...');
+
+    let devices;
+    try {
+        const res = await fetch(config.WA_API.url + '/api/devices', { timeout: 8000 });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        devices = json.data;
+
+        // Server baru nyala kembali setelah mati
+        if (!state.wa_server_up) {
+            sendTelegram(`✅ <b>BOT WHATSAPP ONLINE KEMBALI</b>\n\n<b>Server:</b> ${config.WA_API.name}\n<b>Status:</b> API merespons normal`);
+            state.wa_server_up = true;
+        }
+    } catch (e) {
+        if (state.wa_server_up !== false) {
+            sendTelegram(`🔴 <b>BOT WHATSAPP MATI</b>\n\n<b>Server:</b> ${config.WA_API.name}\n<b>Error:</b> ${e.message}\n<b>Aksi:</b> Cek PM2 / robot-wa.js`);
+            log(`🔴 WA Server down: ${e.message}`);
+            state.wa_server_up = false;
+        }
+        return;
+    }
+
+    for (const device of devices) {
+        // Lewati device yang memang sengaja di-ignore
+        if (config.WA_API.ignore_devices && config.WA_API.ignore_devices.includes(device.id)) continue;
+
+        const prev = state.wa_devices[device.id];
+        const curr = device.status;
+        const label = `<b>${device.name}</b> (${device.number || device.id})`;
+
+        if (!prev) {
+            // Device baru pertama kali terdeteksi
+            if (curr === 'ready') {
+                sendTelegram(`🟢 <b>DEVICE WA BARU TERHUBUNG</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
+                log(`🟢 WA Device baru: ${device.name}`);
+            }
+        } else if (prev === 'ready' && curr !== 'ready') {
+            // Device yang tadinya ready, sekarang mati/disconnect
+            sendTelegram(`🟡 <b>DEVICE WA TERPUTUS</b>\n\n📱 Device: ${label}\n⚠️ Status: ${curr}\n💡 Perlu scan ulang QR Code`);
+            log(`🟡 WA Device terputus: ${device.name} (${curr})`);
+        } else if (prev !== 'ready' && curr === 'ready') {
+            // Device yang tadinya disconnect, kini ready kembali
+            sendTelegram(`✅ <b>DEVICE WA TERHUBUNG KEMBALI</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
+            log(`✅ WA Device kembali: ${device.name}`);
+        }
+
+        state.wa_devices[device.id] = curr;
+    }
+}
 
 async function checkEndpoints() {
     log("🔍 Checking Endpoints...");
@@ -257,7 +313,8 @@ async function runMonitor() {
         await checkEndpoints();
         checkServices();
         checkResources();
-        
+        await checkWhatsApp();
+
         // Report Logic (Check once an hour if it's report time)
         const hour = new Date().getHours();
         if (hour === 8) { // Send at 8 AM
