@@ -88,10 +88,10 @@ async function checkEndpoints() {
 
         // State Change Logic
         if (status === 'DOWN' && prevState === 'UP') {
-            await sendTelegram(`🔴 <b>ENDPOINT DOWN</b>\n\n<b>Name:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Error:</b> ${errorMsg}\n<b>Server:</b> ${config.SERVER_NAME}`);
+            await sendTelegram(`🔴 <b>ENDPOINT MATI</b>\n\n<b>Nama:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Error:</b> ${errorMsg}\n<b>Server:</b> ${config.SERVER_NAME}`);
             log(`🔴 Alert Sent: ${item.name} is DOWN`);
         } else if (status === 'UP' && prevState === 'DOWN') {
-            await sendTelegram(`🟢 <b>ENDPOINT RECOVERED</b>\n\n<b>Name:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Status:</b> Back Online\n<b>Server:</b> ${config.SERVER_NAME}`);
+            await sendTelegram(`🟢 <b>ENDPOINT NORMAL KEMBALI</b>\n\n<b>Nama:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Status:</b> Kembali Online\n<b>Server:</b> ${config.SERVER_NAME}`);
             log(`🟢 Alert Sent: ${item.name} is UP`);
         }
 
@@ -114,10 +114,10 @@ function checkServices() {
         const currentStatus = isRunning ? 'active' : 'inactive';
 
         if (currentStatus === 'inactive' && prevStatus === 'active') {
-            sendTelegram(`🚨 <b>SERVICE DOWN</b>\n\n<b>Service:</b> ${item.name} (${item.service})\n<b>Status:</b> Inactive!\n<b>Server:</b> ${config.SERVER_NAME}`);
+            sendTelegram(`🚨 <b>SERVICE MATI</b>\n\n<b>Layanan:</b> ${item.name} (${item.service})\n<b>Status:</b> Tidak Aktif!\n<b>Server:</b> ${config.SERVER_NAME}`);
             log(`🚨 Alert Sent: ${item.name} is Inactive`);
         } else if (currentStatus === 'active' && prevStatus === 'inactive') {
-            sendTelegram(`✅ <b>SERVICE RECOVERED</b>\n\n<b>Service:</b> ${item.name}\n<b>Status:</b> Running Now\n<b>Server:</b> ${config.SERVER_NAME}`);
+            sendTelegram(`✅ <b>SERVICE NORMAL KEMBALI</b>\n\n<b>Layanan:</b> ${item.name}\n<b>Status:</b> Sedang Berjalan\n<b>Server:</b> ${config.SERVER_NAME}`);
             log(`✅ Alert Sent: ${item.name} is Active`);
         }
 
@@ -134,7 +134,11 @@ function checkResources() {
         if (cpuLoad > config.THRESHOLDS.CPU) {
             const now = Date.now();
             if (now - state.resources.cpu.last_alert > 3600000) { // Limit alert to once per hour
-                sendTelegram(`⚠️ <b>HIGH CPU USAGE</b>\n\n<b>Usage:</b> ${cpuLoad}%\n<b>Threshold:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                let topProcs = "";
+                try {
+                    topProcs = "\n\n<b>🔥 Top 5 Proses Besar:</b>\n" + execSync("ps -eo %cpu,comm --sort=-%cpu | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
+                } catch(e) {}
+                sendTelegram(`⚠️ <b>PENGGUNAAN CPU TINGGI</b>\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.cpu.last_alert = now;
             }
         }
@@ -146,7 +150,11 @@ function checkResources() {
         if (ramUsage > config.THRESHOLDS.RAM) {
             const now = Date.now();
             if (now - state.resources.ram.last_alert > 3600000) {
-                sendTelegram(`⚠️ <b>HIGH RAM USAGE</b>\n\n<b>Usage:</b> ${ramUsage}%\n<b>Threshold:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                let topProcs = "";
+                try {
+                    topProcs = "\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n" + execSync("ps -eo %mem,comm --sort=-%mem | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
+                } catch(e) {}
+                sendTelegram(`⚠️ <b>PENGGUNAAN RAM TINGGI</b>\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.ram.last_alert = now;
             }
         }
@@ -158,7 +166,7 @@ function checkResources() {
         if (diskUsage > config.THRESHOLDS.DISK) {
             const now = Date.now();
             if (now - state.resources.disk.last_alert > 86400000) { // Limit alert to once per day for disk
-                sendTelegram(`🚨 <b>DISK ALMOST FULL</b>\n\n<b>Usage:</b> ${diskUsage}%\n<b>Threshold:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                sendTelegram(`🚨 <b>PENYIMPANAN HAMPIR PENUH</b>\n\n<b>Terpakai:</b> ${diskUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
                 state.resources.disk.last_alert = now;
             }
         }
@@ -183,7 +191,7 @@ async function sendDailyReport() {
     let endpointStatus = Object.entries(state.endpoints).map(([url, status]) => `${status === 'UP' ? '✅' : '🔴'} ${url.replace('https://', '')}`).join('\n');
     let serviceStatus = Object.entries(state.services).map(([name, status]) => `${status === 'active' ? '✅' : '🚨'} ${name}`).join('\n');
 
-    const report = `📊 <b>DAILY SERVER REPORT</b>\n\n<b>Server:</b> ${config.SERVER_NAME}\n<b>Date:</b> ${today}\n\n<b>Resources:</b>\n💾 Disk: ${diskUsage}\n🧠 RAM: ${ramUsage}\n\n<b>Endpoints:</b>\n${endpointStatus}\n\n<b>Services:</b>\n${serviceStatus}\n\nSemua sistem terpantau normal.`;
+    const report = `📊 <b>LAPORAN SERVER HARIAN</b>\n\n<b>Server:</b> ${config.SERVER_NAME}\n<b>Tanggal:</b> ${today}\n\n<b>Kapasitas Tersisa:</b>\n💾 Disk: ${diskUsage}\n🧠 RAM: ${ramUsage}\n\n<b>Status Layanan:</b>\n${serviceStatus}\n\n<b>Pantauan Endpoint:</b>\n${endpointStatus}\n\n<i>✓ Semua sistem berjalan normal.</i>`;
     
     await sendTelegram(report);
     state.last_daily_report = today;
