@@ -11,11 +11,8 @@
 
 
 # ── 2. VPS MONITORING ──
-# Alert Monitor (Setiap 5 menit)
-*/5 * * * * /bin/bash /root/monitoring/vps_monitor.sh alert >> /var/log/vps_monitor.log 2>&1 # vps-monitor-cron
-
-# Full Report (Setiap jam 00:30 dan 12:30)
-30 0,12 * * * /bin/bash /root/monitoring/vps_monitor.sh report >> /var/log/vps_monitor.log 2>&1 # vps-monitor-cron
+# Diambil alih oleh Node.js Monitor (PM2)
+# Tidak perlu Cron Job lagi untuk bagian ini.
 
 
 # ── 3. MAINTENANCE ──

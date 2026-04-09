@@ -11,13 +11,17 @@ Kumpulan script otomatisasi untuk manajemen VPS, backup database, dan monitoring
 
 ## 🛠 Instalasi & Penggunaan
 
-### 1. Monitoring
-Masuk ke folder `monitoring` dan jalankan script setup:
+### 1. Monitoring (Version 2 - Node.js)
+Sistem monitoring sekarang berjalan sebagai daemon (selalu aktif) untuk deteksi instan.
+1. Masuk ke folder `monitoring`.
+2. Edit `config.json` untuk konfigurasi Nama Server, Token Telegram, dan daftar URL/Service.
+3. Jalankan menggunakan PM2:
 ```bash
 cd monitoring
-bash setup_monitor.sh
+npm install
+pm2 start monitor.mjs --name "vps-monitor"
 ```
-Ikuti wizard untuk memasukkan Token Telegram dan mengatur jadwal.
+Fitur: Smart Alert (hanya notif saat status berubah), Cek real-time (default 30 detik), dan report harian.
 
 ### 2. Backup Database
 Pastikan file `/root/backup.conf` sudah dikonfigurasi dengan:
