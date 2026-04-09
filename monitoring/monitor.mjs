@@ -15,7 +15,7 @@ let state = {
     wa_devices: {},         // track WA device states
     wa_server_up: true,     // track WA server status
     resources: {
-        cpu:  { last_alert: 0, is_high: false },
+        cpu:  { last_alert: 0, is_high: false, consecutive_high: 0 },
         ram:  { last_alert: 0, is_high: false },
         disk: { last_alert: 0, is_high: false }
     },
@@ -241,7 +241,12 @@ function labelProcess(rawCmd) {
     // Node.js — tampilkan nama script/folder
     const nodeMatch = rawCmd.match(/node\s+([^\s]+)/);
     if (nodeMatch) {
-        const script = nodeMatch[1].split('/').slice(-2).join('/');
+        let script = nodeMatch[1];
+        if (script === '-e' || script.startsWith('--')) {
+            // Jika node -e, coba ambil cuplikan scriptnya jika ada
+            return `[Node] inline-script (${script})`;
+        }
+        script = script.split('/').slice(-2).join('/');
         return `[Node] ${script}`;
     }
 
@@ -255,18 +260,36 @@ function labelProcess(rawCmd) {
     if (rawCmd.includes('php')) return '[Web] php-fpm';
 
     // Fallback - potong 40 karakter
-    return rawCmd.substring(0, 45);
+    return rawCmd.substring(0, 45).trim();
 }
 
 function getTopProcesses(sortField, count = 5) {
-    const psOutput = execSync(`ps -eo ${sortField},args --sort=-${sortField} | head -n ${count + 1}`)
-        .toString().trim().split('\n').slice(1);
-    return psOutput.map(line => {
-        const parts = line.trim().split(/\s+/);
-        const usage = parts[0];
-        const rawCmd = parts.slice(1).join(' ');
-        return `▪ ${labelProcess(rawCmd)} (${usage}%)`;
-    }).join('\n');
+    try {
+        if (sortField === 'pcpu') {
+            // Gunakan top -b (batch mode) untuk mendapatkan data real-time yang akurat di Linux
+            // Skip 7 baris header, ambil 5 baris pertama
+            // Output top: PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
+            const topOutput = execSync(`top -b -n 1 | tail -n +8 | head -n ${count}`).toString().trim().split('\n');
+            return topOutput.map(line => {
+                const parts = line.trim().split(/\s+/);
+                const usage = parts[8]; // Kolom %CPU biasanya ke-9 (index 8)
+                const cmd = parts.slice(11).join(' '); // Kolom COMMAND biasanya ke-12 (index 11)
+                return `▪ ${labelProcess(cmd)} (${usage}%)`;
+            }).join('\n');
+        } else {
+            // Untuk RAM (pmem) tetap pakai ps karena lebih stabil pengukurannya
+            const psOutput = execSync(`ps -eo ${sortField},args --sort=-${sortField} | head -n ${count + 1}`)
+                .toString().trim().split('\n').slice(1);
+            return psOutput.map(line => {
+                const parts = line.trim().split(/\s+/);
+                const usage = parts[0];
+                const rawCmd = parts.slice(1).join(' ');
+                return `▪ ${labelProcess(rawCmd)} (${usage}%)`;
+            }).join('\n');
+        }
+    } catch (e) {
+        return `⚠️ Gagal mengambil daftar proses: ${e.message}`;
+    }
 }
 
 function checkResources() {
@@ -277,23 +300,37 @@ function checkResources() {
     // 1. CPU
     try {
         const cpuLoad = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'").toString().trim());
+        
         if (cpuLoad > config.THRESHOLDS.CPU) {
+            state.resources.cpu.consecutive_high = (state.resources.cpu.consecutive_high || 0) + 1;
+            log(`⚠️ CPU High detected (${cpuLoad.toFixed(1)}%). Count: ${state.resources.cpu.consecutive_high}`);
+
             const now = Date.now();
-            if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
-                let topProcs = '';
-                try {
-                    topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`;
-                } catch(e) {}
-                const label = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ PENGGUNAAN CPU TINGGI';
-                sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
-                state.resources.cpu.last_alert = now;
-                state.resources.cpu.is_high = true;
+            // Kirim notif hanya jika sudah 2x berturut-turut (sekitar 2 menit)
+            if (state.resources.cpu.consecutive_high >= 2) {
+                if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
+                    let topProcs = '';
+                    try {
+                        topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`;
+                    } catch(e) {}
+                    
+                    const label = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ PENGGUNAAN CPU TINGGI (Stabil)';
+                    sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Durasi:</b> >1 Menit\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
+                    
+                    state.resources.cpu.last_alert = now;
+                    state.resources.cpu.is_high = true;
+                }
             }
-        } else if (state.resources.cpu.is_high) {
-            sendTelegram(`🟢 <b>CPU NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}`);
-            state.resources.cpu.is_high = false;
+        } else {
+            if (state.resources.cpu.is_high) {
+                sendTelegram(`🟢 <b>CPU NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                state.resources.cpu.is_high = false;
+            }
+            state.resources.cpu.consecutive_high = 0;
         }
-    } catch (e) {}
+    } catch (e) {
+        log(`Error checking CPU: ${e.message}`);
+    }
 
     // 2. RAM
     try {
