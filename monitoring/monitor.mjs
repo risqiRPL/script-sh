@@ -306,8 +306,10 @@ function checkResources() {
             log(`⚠️ CPU High detected (${cpuLoad.toFixed(1)}%). Count: ${state.resources.cpu.consecutive_high}`);
 
             const now = Date.now();
-            // Kirim notif hanya jika sudah 2x berturut-turut (sekitar 2 menit)
-            if (state.resources.cpu.consecutive_high >= 2) {
+            const minCount = config.THRESHOLDS.CPU_ALERT_MIN_COUNT || 2;
+            
+            // Kirim notif hanya jika sudah memenuhi batas durasi di config
+            if (state.resources.cpu.consecutive_high >= minCount) {
                 if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
                     let topProcs = '';
                     try {
