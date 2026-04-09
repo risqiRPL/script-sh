@@ -13,9 +13,9 @@ let state = {
     endpoints: {},
     services: {},
     resources: {
-        cpu: { last_alert: 0 },
-        ram: { last_alert: 0 },
-        disk: { last_alert: 0 }
+        cpu:  { last_alert: 0, is_high: false },
+        ram:  { last_alert: 0, is_high: false },
+        disk: { last_alert: 0, is_high: false }
     },
     last_daily_report: null
 };
@@ -125,20 +125,61 @@ function checkServices() {
     }
 }
 
+// --- HELPER: label proses dengan nama yang lebih informatif ---
+function labelProcess(rawCmd) {
+    // Tandai proses Docker container
+    if (rawCmd.includes('containerd-shim') || rawCmd.includes('runc')) return '[Docker] container-runtime';
+    if (rawCmd.includes('/usr/bin/dockerd')) return '[Docker] dockerd (engine)';
+    if (rawCmd.includes('/usr/bin/containerd')) return '[Docker] containerd';
+
+    // Node.js — tampilkan nama script/folder
+    const nodeMatch = rawCmd.match(/node\s+([^\s]+)/);
+    if (nodeMatch) {
+        const script = nodeMatch[1].split('/').slice(-2).join('/');
+        return `[Node] ${script}`;
+    }
+
+    // PostgreSQL / Supabase
+    if (rawCmd.startsWith('postgres:')) return `[DB] ${rawCmd.substring(0, 45)}`;
+    if (rawCmd.includes('supabase')) return `[Supabase] ${rawCmd.split('/').pop().substring(0, 30)}`;
+
+    // Apache/PHP/Nginx
+    if (rawCmd.includes('apache2') || rawCmd.includes('httpd')) return '[Web] apache2';
+    if (rawCmd.includes('nginx')) return '[Web] nginx';
+    if (rawCmd.includes('php')) return '[Web] php-fpm';
+
+    // Fallback - potong 40 karakter
+    return rawCmd.substring(0, 45);
+}
+
+function getTopProcesses(sortField, count = 5) {
+    const psOutput = execSync(`ps -eo ${sortField},args --sort=-${sortField} | head -n ${count + 1}`)
+        .toString().trim().split('\n').slice(1);
+    return psOutput.map(line => {
+        const parts = line.trim().split(/\s+/);
+        const usage = parts[0];
+        const rawCmd = parts.slice(1).join(' ');
+        return `▪ ${labelProcess(rawCmd)} (${usage}%)`;
+    }).join('\n');
+}
+
 function checkResources() {
     log("🔍 Checking Server Resources...");
-    
+    const COOLDOWN_MS = 30 * 60 * 1000; // 30 menit
+    const DISK_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 jam untuk disk
+
     // 1. CPU
     try {
         const cpuLoad = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'").toString().trim());
         if (cpuLoad > config.THRESHOLDS.CPU) {
             const now = Date.now();
-            if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > 3600000) { // Limit alert to once per hour
-                let topProcs = "";
+            if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
+                let topProcs = '';
                 try {
-                    topProcs = "\n\n<b>🔥 Top 5 Proses Besar:</b>\n" + execSync("ps -eo %cpu,comm --sort=-%cpu | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
+                    topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`;
                 } catch(e) {}
-                sendTelegram(`⚠️ <b>PENGGUNAAN CPU TINGGI</b>\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
+                const label = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ PENGGUNAAN CPU TINGGI';
+                sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.cpu.last_alert = now;
                 state.resources.cpu.is_high = true;
             }
@@ -153,12 +194,13 @@ function checkResources() {
         const ramUsage = parseInt(execSync("free | grep Mem | awk '{print $3/$2 * 100.0}'").toString().trim());
         if (ramUsage > config.THRESHOLDS.RAM) {
             const now = Date.now();
-            if (!state.resources.ram.is_high || now - state.resources.ram.last_alert > 3600000) {
-                let topProcs = "";
+            if (!state.resources.ram.is_high || now - state.resources.ram.last_alert > COOLDOWN_MS) {
+                let topProcs = '';
                 try {
-                    topProcs = "\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n" + execSync("ps -eo %mem,comm --sort=-%mem | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
+                    topProcs = `\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n${getTopProcesses('pmem')}`;
                 } catch(e) {}
-                sendTelegram(`⚠️ <b>PENGGUNAAN RAM TINGGI</b>\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
+                const label = state.resources.ram.is_high ? '⚠️ RAM MASIH TINGGI' : '⚠️ PENGGUNAAN RAM TINGGI';
+                sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.ram.last_alert = now;
                 state.resources.ram.is_high = true;
             }
@@ -173,10 +215,14 @@ function checkResources() {
         const diskUsage = parseInt(execSync("df -h / | tail -1 | awk '{print $5}' | sed 's/%//'").toString().trim());
         if (diskUsage > config.THRESHOLDS.DISK) {
             const now = Date.now();
-            if (now - state.resources.disk.last_alert > 86400000) { // Limit alert to once per day for disk
+            if (!state.resources.disk.is_high || now - state.resources.disk.last_alert > DISK_COOLDOWN_MS) {
                 sendTelegram(`🚨 <b>PENYIMPANAN HAMPIR PENUH</b>\n\n<b>Terpakai:</b> ${diskUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
                 state.resources.disk.last_alert = now;
+                state.resources.disk.is_high = true;
             }
+        } else if (state.resources.disk.is_high) {
+            sendTelegram(`🟢 <b>PENYIMPANAN KEMBALI AMAN</b>\n\n<b>Terpakai:</b> ${diskUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+            state.resources.disk.is_high = false;
         }
     } catch (e) {}
 }
