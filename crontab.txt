@@ -1,0 +1,23 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  FEZORA SERVER CRONTAB
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ── 1. DATABASE BACKUPS ──
+# Supabase Backup (Setiap jam 12:00 dan 20:00)
+0 12,20 * * * /bin/bash /root/backups/supabase_backup.sh >> /root/backups/logs/cron.log 2>&1
+
+# MySQL Backup (Setiap jam 12:00 dan 20:00)
+0 12,20 * * * /bin/bash /root/backups/mysql_backup.sh >> /root/backups/logs/cron.log 2>&1
+
+
+# ── 2. VPS MONITORING ──
+# Alert Monitor (Setiap 5 menit)
+*/5 * * * * /bin/bash /root/monitoring/vps_monitor.sh alert >> /var/log/vps_monitor.log 2>&1 # vps-monitor-cron
+
+# Full Report (Setiap jam 00:30 dan 12:30)
+30 0,12 * * * /bin/bash /root/monitoring/vps_monitor.sh report >> /var/log/vps_monitor.log 2>&1 # vps-monitor-cron
+
+
+# ── 3. MAINTENANCE ──
+# Hapus log lama > 30 hari
+0 3 * * * find /root/backups/logs -name "*.log" -mtime +30 -delete

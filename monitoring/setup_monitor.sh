@@ -104,6 +104,16 @@ setup_permissions() {
   chmod 600 "$CONFIG_FILE"
   print_ok "monitor.conf → 600 (private)"
   
+  # Setup modules directory
+  local modules_dir="${SCRIPT_DIR}/modules"
+  if [ -d "$modules_dir" ]; then
+    chmod 755 "$modules_dir"
+    chmod 644 "$modules_dir"/*.sh 2>/dev/null || true
+    print_ok "modules/ → setup complete"
+  else
+    print_warn "Folder modules/ tidak ditemukan. Pastikan file modul ada!"
+  fi
+  
   # Setup log file
   if $CAN_WRITE_LOG; then
     touch "$LOG_FILE"

@@ -1,31 +1,51 @@
-# Security & Credentials
+# ── Security & Credentials ──
 .ssh/
 .gnupg/
 .pki/
 .gitconfig
+.env
 
-# System & History
+#*.conf
+#!monitoring/monitor.conf
+#backup.conf
+
+# ── Monitoring & Logs ──
+*.log
+/var/log/vps_monitor.log
+
+# ── Databases & Backup Files ──
+# Folder backups/ TETAP dilacak Git (berisi script .sh)
+# Hanya file hasil backup yang diabaikan
+*.sql
+*.sql.gz
+*.tar.gz
+*.dump
+.last_hash
+
+# ── Node.js (wa-bot) ──
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ── System Files ──
+.DS_Store
+Thumbs.db
 .bash_history
 .mariadb_history
 .lesshst
 .selected_editor
 .profile
 .bashrc
-
-# Folders/Apps
 .cache/
 .config/
 .local/
 .npm/
 .nvm/
 .pm2/
-.filemin/
 .tmp/
+*.lock
+
+# ── Mail ──
 Maildir/
-backups/
-
-# Config Files (Hati-hati jika backup.conf berisi password)
-backup.conf
-
-
-wa-bot/node_modules/
