@@ -118,6 +118,56 @@ async function checkWhatsApp() {
 
         state.wa_devices[device.id] = curr;
     }
+
+    // --- CEK DEFAULT DEVICE ---
+    try {
+        const cfgRes = await fetch(config.WA_API.url + '/api/pengaturan', { timeout: 5000 });
+        const cfgJson = await cfgRes.json();
+        const defaultId = cfgJson.data?.defaultDeviceId || null;
+        const prevDefault = state.wa_devices['__default__'];
+
+        if (!defaultId) {
+            // Default belum di-set sama sekali
+            if (prevDefault !== 'UNSET') {
+                sendTelegram(`⚠️ <b>DEFAULT DEVICE WA BELUM DI-SET</b>\n\n📱 Tidak ada device default aktif.\n💡 Set default device agar pesan otomatis bisa terkirim.\n<b>Server:</b> ${config.WA_API.name}`);
+                log('⚠️ WA default device belum di-set');
+                state.wa_devices['__default__'] = 'UNSET';
+            }
+        } else {
+            // Cari nama device berdasarkan ID
+            const defaultDevice = devices.find(d => d.id === defaultId);
+            const defaultName = defaultDevice ? defaultDevice.name : defaultId;
+            const defaultStatus = defaultDevice ? defaultDevice.status : 'unknown';
+
+            // Default device berubah
+            if (prevDefault && prevDefault !== 'UNSET' && prevDefault !== defaultId) {
+                const prevDevice = devices.find(d => d.id === prevDefault);
+                const prevName = prevDevice ? prevDevice.name : prevDefault;
+                sendTelegram(`🔄 <b>DEFAULT DEVICE WA BERUBAH</b>\n\n📤 Sebelumnya: <b>${prevName}</b>\n📥 Sekarang: <b>${defaultName}</b>\n<b>Server:</b> ${config.WA_API.name}`);
+                log(`🔄 WA default device berubah: ${prevName} → ${defaultName}`);
+            }
+
+            // Default device terputus — ini kritis!
+            if (defaultStatus !== 'ready') {
+                const alertKey = '__default_down__';
+                if (!state.wa_devices[alertKey]) {
+                    sendTelegram(`🚨 <b>DEFAULT DEVICE WA TERPUTUS!</b>\n\n📱 Device: <b>${defaultName}</b>\n⚠️ Status: ${defaultStatus}\n💡 Pesan otomatis TIDAK AKAN TERKIRIM sampai device reconnect!\n<b>Server:</b> ${config.WA_API.name}`);
+                    log(`🚨 WA default device terputus: ${defaultName}`);
+                    state.wa_devices[alertKey] = true;
+                }
+            } else {
+                if (state.wa_devices['__default_down__']) {
+                    sendTelegram(`✅ <b>DEFAULT DEVICE WA NORMAL KEMBALI</b>\n\n📱 Device: <b>${defaultName}</b>\n✅ Status: Siap mengirim pesan\n<b>Server:</b> ${config.WA_API.name}`);
+                    log(`✅ WA default device kembali: ${defaultName}`);
+                    state.wa_devices['__default_down__'] = false;
+                }
+            }
+
+            state.wa_devices['__default__'] = defaultId;
+        }
+    } catch(e) {
+        log(`⚠️ Gagal cek default device: ${e.message}`);
+    }
 }
 
 async function checkEndpoints() {
