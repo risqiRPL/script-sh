@@ -133,14 +133,18 @@ function checkResources() {
         const cpuLoad = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'").toString().trim());
         if (cpuLoad > config.THRESHOLDS.CPU) {
             const now = Date.now();
-            if (now - state.resources.cpu.last_alert > 3600000) { // Limit alert to once per hour
+            if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > 3600000) { // Limit alert to once per hour
                 let topProcs = "";
                 try {
                     topProcs = "\n\n<b>🔥 Top 5 Proses Besar:</b>\n" + execSync("ps -eo %cpu,comm --sort=-%cpu | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
                 } catch(e) {}
                 sendTelegram(`⚠️ <b>PENGGUNAAN CPU TINGGI</b>\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.cpu.last_alert = now;
+                state.resources.cpu.is_high = true;
             }
+        } else if (state.resources.cpu.is_high) {
+            sendTelegram(`🟢 <b>CPU NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+            state.resources.cpu.is_high = false;
         }
     } catch (e) {}
 
@@ -149,14 +153,18 @@ function checkResources() {
         const ramUsage = parseInt(execSync("free | grep Mem | awk '{print $3/$2 * 100.0}'").toString().trim());
         if (ramUsage > config.THRESHOLDS.RAM) {
             const now = Date.now();
-            if (now - state.resources.ram.last_alert > 3600000) {
+            if (!state.resources.ram.is_high || now - state.resources.ram.last_alert > 3600000) {
                 let topProcs = "";
                 try {
                     topProcs = "\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n" + execSync("ps -eo %mem,comm --sort=-%mem | head -n 6 | awk 'NR>1 {print \"▪ \" $2 \" (\" $1 \"%)\"}'").toString().trim();
                 } catch(e) {}
                 sendTelegram(`⚠️ <b>PENGGUNAAN RAM TINGGI</b>\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.ram.last_alert = now;
+                state.resources.ram.is_high = true;
             }
+        } else if (state.resources.ram.is_high) {
+            sendTelegram(`🟢 <b>RAM NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+            state.resources.ram.is_high = false;
         }
     } catch (e) {}
 

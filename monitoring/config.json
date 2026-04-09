@@ -4,24 +4,72 @@
   "SERVER_NAME": "VPS-Fezora",
   "CHECK_INTERVAL_MS": 60000,
   "ENDPOINTS": [
-    { "name": "Fezora Utama", "url": "https://fezora.net" },
-    { "name": "Presensi Fezora", "url": "https://presensi.fezora.net" },
-    { "name": "Satellite Orbit Cloud", "url": "https://satelliteorbit.cloud" },
-    { "name": "Supabase DB1", "url": "https://db1.supabase.fezora.net" },
-    { "name": "Supabase DB2", "url": "https://db2.supabase.fezora.net" },
-    { "name": "Supabase DB3", "url": "https://db3.supabase.fezora.net" },
-    { "name": "n8n Automation", "url": "https://n8n.fezora.net" },
-    { "name": "WhatsApp API", "url": "https://wa.fezora.net" }
+    {
+      "name": "Fezora Utama",
+      "url": "https://fezora.net"
+    },
+    {
+      "name": "Presensi Fezora",
+      "url": "https://presensi.fezora.net"
+    },
+    {
+      "name": "Satellite Orbit Cloud",
+      "url": "https://satelliteorbit.cloud"
+    },
+    {
+      "name": "Supabase DB1",
+      "url": "https://db1.supabase.fezora.net"
+    },
+    {
+      "name": "Supabase DB2",
+      "url": "https://db2.supabase.fezora.net"
+    },
+    {
+      "name": "Supabase DB3",
+      "url": "https://db3.supabase.fezora.net"
+    },
+    {
+      "name": "n8n Automation",
+      "url": "https://n8n.fezora.net"
+    },
+    {
+      "name": "WhatsApp API",
+      "url": "https://wa.fezora.net"
+    }
   ],
   "SERVICES": [
-    { "name": "Apache Web Server", "service": "apache2" },
-    { "name": "MariaDB Database", "service": "mariadb" },
-    { "name": "Docker Engine", "service": "docker" },
-    { "name": "PHP 8.4 Engine", "service": "php8.4-fpm" },
-    { "name": "PostgreSQL 17", "service": "postgresql@17-main" },
-    { "name": "DNS Server (Named)", "service": "named" },
-    { "name": "Mail Server (Postfix)", "service": "postfix" },
-    { "name": "Security Fail2Ban", "service": "fail2ban" }
+    {
+      "name": "Apache Web Server",
+      "service": "apache2"
+    },
+    {
+      "name": "MariaDB Database",
+      "service": "mariadb"
+    },
+    {
+      "name": "Docker Engine",
+      "service": "docker"
+    },
+    {
+      "name": "PHP 8.4 Engine",
+      "service": "php8.4-fpm"
+    },
+    {
+      "name": "PostgreSQL 17",
+      "service": "postgresql@17-main"
+    },
+    {
+      "name": "DNS Server (Named)",
+      "service": "named"
+    },
+    {
+      "name": "Mail Server (Postfix)",
+      "service": "postfix"
+    },
+    {
+      "name": "Security Fail2Ban",
+      "service": "fail2ban"
+    }
   ],
   "SSL_DOMAINS": [
     "fezora.net",
@@ -38,13 +86,10 @@
     "satelliteorbit.cloud",
     "www.satelliteorbit.cloud",
     "rekamteknik.satelliteorbit.cloud",
-    "parentalcontrol.satelliteorbit.cloud",
     "satriadesa.satelliteorbit.cloud",
     "satuprasasti.satelliteorbit.cloud",
     "siperda.satelliteorbit.cloud",
-    "siperda-staging.satelliteorbit.cloud",
-    "sirangga.satelliteorbit.cloud",
-    "sppd.satelliteorbit.cloud"
+    "siperda-staging.satelliteorbit.cloud"
   ],
   "THRESHOLDS": {
     "CPU": 80,
