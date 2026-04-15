@@ -1,0 +1,72 @@
+# ── Security & Credentials ──
+.ssh/
+.gnupg/
+.pki/
+.gitconfig
+.env
+monitoring/config.json
+monitoring/state.json
+
+# ── System Files (Fezora VPS) ──
+.gemini/
+.openclaw/
+.codex/
+.filemin/
+.spamassassin/
+.local/
+.npm/
+.nvm/
+.pm2/
+.tmp/
+.cache/
+.config/
+.gnupg/
+.pki/
+.ssh/
+.gnome/
+.dbus/
+.pki/
+.bash_history
+.mariadb_history
+.lesshst
+.selected_editor
+.profile
+.bashrc
+.placeholder
+.selected_editor
+*.lock
+
+# ── Temporary & Request Files ──
+*.json
+!monitoring/package.json
+!wa-bot/package.json
+!backups/config.json
+app.log
+req.json
+direct_req.json
+request.json
+
+# ── Monitoring & Logs ──
+*.log
+/var/log/vps_monitor.log
+monitoring/node_modules/
+wa-bot/node_modules/
+
+# ── Databases & Backup Files ──
+*.sql
+*.sql.gz
+*.tar.gz
+*.dump
+.last_hash
+backups/logs/
+backups/data/
+
+# ── Node.js & OS ──
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.DS_Store
+Thumbs.db
+Maildir/
