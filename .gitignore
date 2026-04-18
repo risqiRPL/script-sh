@@ -5,6 +5,12 @@
 .gitconfig
 .env
 
+.codex/
+.filemin/
+.gemini/
+.hermes/
+.zshrc
+
 #*.conf
 #!monitoring/monitor.conf
 #backup.conf
