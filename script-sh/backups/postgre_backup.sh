@@ -8,9 +8,11 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # ── 1. CONFIGURATION ──
+if [ -f "$(dirname "$0")/backup.conf" ]; then source "$(dirname "$0")/backup.conf"; fi
+
 DB_NAME="presensi"
-DB_USER="root"
-DB_PASS="@Yahoo212"
+DB_USER="${DB_USER:-root}"
+DB_PASS="${DB_PASS:-@Yahoo212}"
 DB_HOST="localhost"
 DB_PORT="5432"
 
@@ -22,8 +24,8 @@ FILE_NAME="backup_${DB_NAME}_${DATE}.sql.gz"
 BACKUP_PATH="${BACKUP_DIR}/${FILE_NAME}"
 
 # Telegram Settings
-TOKEN="613594704:AAGOatk_xKZrTqL5bpryZOdK-Q0Dc5FvSUA"
-CHAT_ID="-4628612741"
+TOKEN="${TELEGRAM_BOT_TOKEN:-613594704:AAGOatk_xKZrTqL5bpryZOdK-Q0Dc5FvSUA}"
+CHAT_ID="${TELEGRAM_CHAT_ID:--1001491708403}"
 
 # ── 2. START PROCESS ──
 echo "[$(date)] INFO: Starting backup for database: ${DB_NAME}" >> $LOG_FILE
@@ -40,9 +42,9 @@ if [ $? -eq 0 ]; then
     echo "[$(date)] SUCCESS: Backup created at ${BACKUP_PATH} (${SIZE})" >> $LOG_FILE
     
     # ── 4. TELEGRAM NOTIFICATION ──
-    CAPTION="🚀 *PostgreSQL Backup Success* %0A━━━━━━━━━━━━━━━━━━━━%0A📂 *Database:* \`${DB_NAME}\` %0A📊 *Size:* \`${SIZE}\` %0A📅 *Date:* \`${DATE}\` %0A🖥️ *Host:* \`31.97.108.71\` %0A━━━━━━━━━━━━━━━━━━━━"
+    CAPTION="🐘 <b>PostgreSQL Backup</b> | <code>${DB_NAME}</code> | $(date +'%Y-%m-%d %H:%M')"
     
-    RESPONSE=$(curl -s -F chat_id="$CHAT_ID" -F document=@"$BACKUP_PATH" -F caption="$CAPTION" -F parse_mode="Markdown" https://api.telegram.org/bot$TOKEN/sendDocument)
+    RESPONSE=$(curl -s -F chat_id="$CHAT_ID" -F document=@"$BACKUP_PATH" -F caption="$CAPTION" -F parse_mode="HTML" https://api.telegram.org/bot$TOKEN/sendDocument)
     
     if [[ $RESPONSE == *"\"ok\":true"* ]]; then
         echo "[$(date)] INFO: Backup file sent to Telegram." >> $LOG_FILE
@@ -56,8 +58,8 @@ if [ $? -eq 0 ]; then
 else
     echo "[$(date)] CRITICAL: Backup FAILED for ${DB_NAME}!" >> $LOG_FILE
     # Notify Failure to Telegram
-    ERROR_MSG="⚠️ *CRITICAL: PostgreSQL Backup FAILED* %0A❌ Database: \`${DB_NAME}\` %0A📅 Date: \`${DATE}\` %0A🖥️ Host: \`31.97.108.71\`"
-    curl -s -X POST https://api.telegram.org/bot$TOKEN/sendMessage -d chat_id="$CHAT_ID" -d text="$ERROR_MSG" -d parse_mode="Markdown"
+    ERROR_MSG="⚠️ <b>CRITICAL: PostgreSQL Backup FAILED</b>%0A❌ Database: <code>${DB_NAME}</code>%0A📅 Date: <code>$(date +'%Y-%m-%d %H:%M')</code>%0A🖥️ Host: <code>31.97.108.71</code>"
+    curl -s -X POST https://api.telegram.org/bot$TOKEN/sendMessage -d chat_id="$CHAT_ID" -d text="$ERROR_MSG" -d parse_mode="HTML"
 fi
 
 unset PGPASSWORD
