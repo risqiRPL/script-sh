@@ -17,16 +17,8 @@
       "url": "https://satelliteorbit.cloud"
     },
     {
-      "name": "Supabase DB1",
-      "url": "https://db1.supabase.fezora.net"
-    },
-    {
       "name": "Supabase DB2",
       "url": "https://db2.supabase.fezora.net"
-    },
-    {
-      "name": "Supabase DB3",
-      "url": "https://db3.supabase.fezora.net"
     },
     {
       "name": "n8n Automation",
@@ -77,12 +69,9 @@
     "www.fezora.net",
     "n8n.fezora.net",
     "presensi.fezora.net",
-    "project.fezora.net",
     "sso.fezora.net",
     "supabase.fezora.net",
-    "db1.supabase.fezora.net",
     "db2.supabase.fezora.net",
-    "db3.supabase.fezora.net",
     "satelliteorbit.cloud",
     "www.satelliteorbit.cloud",
     "rekamteknik.satelliteorbit.cloud",
