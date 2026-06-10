@@ -87,6 +87,11 @@
       "device-1771507462436-cr36o0miy"
     ]
   },
+  "BACKUP_DIRS": [
+    { "name": "Supabase", "dir": "/root/backups/supabase" },
+    { "name": "MySQL", "dir": "/root/backups/mysql" },
+    { "name": "PostgreSQL", "dir": "/root/script-sh/backups/files/postgre" }
+  ],
   "THRESHOLDS": {
     "CPU": 80,
     "RAM": 85,

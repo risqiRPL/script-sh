@@ -12,13 +12,17 @@ let config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
 let state = {
     endpoints: {},
     services: {},
-    wa_devices: {},         // track WA device states
-    wa_server_up: true,     // track WA server status
+    wa_devices: {},
+    wa_server_up: true,
     resources: {
         cpu:  { last_alert: 0, is_high: false, consecutive_high: 0 },
         ram:  { last_alert: 0, is_high: false },
         disk: { last_alert: 0, is_high: false }
     },
+    pm2_restarts: {},
+    ssl_cache: {},
+    ssl_alerts: {},
+    last_ssl_check: null,
     last_daily_report: null
 };
 
@@ -42,9 +46,7 @@ function log(msg) {
     console.log(line);
     try {
         fs.appendFileSync(config.LOG_FILE, line + '\n');
-    } catch (e) {
-        // Fallback if log file not writable
-    }
+    } catch (e) {}
 }
 
 async function sendTelegram(message) {
@@ -78,7 +80,6 @@ async function checkWhatsApp() {
         const json = await res.json();
         devices = json.data;
 
-        // Server baru nyala kembali setelah mati
         if (!state.wa_server_up) {
             sendTelegram(`✅ <b>BOT WHATSAPP ONLINE KEMBALI</b>\n\n<b>Server:</b> ${config.WA_API.name}\n<b>Status:</b> API merespons normal`);
             state.wa_server_up = true;
@@ -93,7 +94,6 @@ async function checkWhatsApp() {
     }
 
     for (const device of devices) {
-        // Lewati device yang memang sengaja di-ignore
         if (config.WA_API.ignore_devices && config.WA_API.ignore_devices.includes(device.id)) continue;
 
         const prev = state.wa_devices[device.id];
@@ -101,17 +101,14 @@ async function checkWhatsApp() {
         const label = `<b>${device.name}</b> (${device.number || device.id})`;
 
         if (!prev) {
-            // Device baru pertama kali terdeteksi
             if (curr === 'ready') {
                 sendTelegram(`🟢 <b>DEVICE WA BARU TERHUBUNG</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
                 log(`🟢 WA Device baru: ${device.name}`);
             }
         } else if (prev === 'ready' && curr !== 'ready') {
-            // Device yang tadinya ready, sekarang mati/disconnect
             sendTelegram(`🟡 <b>DEVICE WA TERPUTUS</b>\n\n📱 Device: ${label}\n⚠️ Status: ${curr}\n💡 Perlu scan ulang QR Code`);
             log(`🟡 WA Device terputus: ${device.name} (${curr})`);
         } else if (prev !== 'ready' && curr === 'ready') {
-            // Device yang tadinya disconnect, kini ready kembali
             sendTelegram(`✅ <b>DEVICE WA TERHUBUNG KEMBALI</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
             log(`✅ WA Device kembali: ${device.name}`);
         }
@@ -127,19 +124,16 @@ async function checkWhatsApp() {
         const prevDefault = state.wa_devices['__default__'];
 
         if (!defaultId) {
-            // Default belum di-set sama sekali
             if (prevDefault !== 'UNSET') {
                 sendTelegram(`⚠️ <b>DEFAULT DEVICE WA BELUM DI-SET</b>\n\n📱 Tidak ada device default aktif.\n💡 Set default device agar pesan otomatis bisa terkirim.\n<b>Server:</b> ${config.WA_API.name}`);
                 log('⚠️ WA default device belum di-set');
                 state.wa_devices['__default__'] = 'UNSET';
             }
         } else {
-            // Cari nama device berdasarkan ID
             const defaultDevice = devices.find(d => d.id === defaultId);
             const defaultName = defaultDevice ? defaultDevice.name : defaultId;
             const defaultStatus = defaultDevice ? defaultDevice.status : 'unknown';
 
-            // Default device berubah
             if (prevDefault && prevDefault !== 'UNSET' && prevDefault !== defaultId) {
                 const prevDevice = devices.find(d => d.id === prevDefault);
                 const prevName = prevDevice ? prevDevice.name : prevDefault;
@@ -147,7 +141,6 @@ async function checkWhatsApp() {
                 log(`🔄 WA default device berubah: ${prevName} → ${defaultName}`);
             }
 
-            // Default device terputus — ini kritis!
             if (defaultStatus !== 'ready') {
                 const alertKey = '__default_down__';
                 if (!state.wa_devices[alertKey]) {
@@ -176,11 +169,9 @@ async function checkEndpoints() {
         let status = 'UP';
         let errorMsg = '';
         let startTime = Date.now();
-        let responseTime = 0;
 
         try {
             const res = await fetch(item.url, { timeout: 10000 });
-            responseTime = Date.now() - startTime;
             if (!res.ok) {
                 status = 'DOWN';
                 errorMsg = `HTTP ${res.status}`;
@@ -192,7 +183,6 @@ async function checkEndpoints() {
 
         const prevState = state.endpoints[item.url] || 'UP';
 
-        // State Change Logic
         if (status === 'DOWN' && prevState === 'UP') {
             await sendTelegram(`🔴 <b>ENDPOINT MATI</b>\n\n<b>Nama:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Error:</b> ${errorMsg}\n<b>Server:</b> ${config.SERVER_NAME}`);
             log(`🔴 Alert Sent: ${item.name} is DOWN`);
@@ -233,51 +223,38 @@ function checkServices() {
 
 // --- HELPER: label proses dengan nama yang lebih informatif ---
 function labelProcess(rawCmd) {
-    // Tandai proses Docker container
     if (rawCmd.includes('containerd-shim') || rawCmd.includes('runc')) return '[Docker] container-runtime';
     if (rawCmd.includes('/usr/bin/dockerd')) return '[Docker] dockerd (engine)';
     if (rawCmd.includes('/usr/bin/containerd')) return '[Docker] containerd';
 
-    // Node.js — tampilkan nama script/folder
     const nodeMatch = rawCmd.match(/node\s+([^\s]+)/);
     if (nodeMatch) {
         let script = nodeMatch[1];
-        if (script === '-e' || script.startsWith('--')) {
-            // Jika node -e, coba ambil cuplikan scriptnya jika ada
-            return `[Node] inline-script (${script})`;
-        }
+        if (script === '-e' || script.startsWith('--')) return `[Node] inline-script (${script})`;
         script = script.split('/').slice(-2).join('/');
         return `[Node] ${script}`;
     }
 
-    // PostgreSQL / Supabase
     if (rawCmd.startsWith('postgres:')) return `[DB] ${rawCmd.substring(0, 45)}`;
     if (rawCmd.includes('supabase')) return `[Supabase] ${rawCmd.split('/').pop().substring(0, 30)}`;
-
-    // Apache/PHP/Nginx
     if (rawCmd.includes('apache2') || rawCmd.includes('httpd')) return '[Web] apache2';
     if (rawCmd.includes('nginx')) return '[Web] nginx';
     if (rawCmd.includes('php')) return '[Web] php-fpm';
 
-    // Fallback - potong 40 karakter
     return rawCmd.substring(0, 45).trim();
 }
 
 function getTopProcesses(sortField, count = 5) {
     try {
         if (sortField === 'pcpu') {
-            // Gunakan top -b (batch mode) untuk mendapatkan data real-time yang akurat di Linux
-            // Skip 7 baris header, ambil 5 baris pertama
-            // Output top: PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
             const topOutput = execSync(`top -b -n 1 | tail -n +8 | head -n ${count}`).toString().trim().split('\n');
             return topOutput.map(line => {
                 const parts = line.trim().split(/\s+/);
-                const usage = parts[8]; // Kolom %CPU biasanya ke-9 (index 8)
-                const cmd = parts.slice(11).join(' '); // Kolom COMMAND biasanya ke-12 (index 11)
+                const usage = parts[8];
+                const cmd = parts.slice(11).join(' ');
                 return `▪ ${labelProcess(cmd)} (${usage}%)`;
             }).join('\n');
         } else {
-            // Untuk RAM (pmem) tetap pakai ps karena lebih stabil pengukurannya
             const psOutput = execSync(`ps -eo ${sortField},args --sort=-${sortField} | head -n ${count + 1}`)
                 .toString().trim().split('\n').slice(1);
             return psOutput.map(line => {
@@ -294,31 +271,27 @@ function getTopProcesses(sortField, count = 5) {
 
 function checkResources() {
     log("🔍 Checking Server Resources...");
-    const COOLDOWN_MS = 30 * 60 * 1000; // 30 menit
-    const DISK_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 jam untuk disk
+    const COOLDOWN_MS = 30 * 60 * 1000;
+    const DISK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
     // 1. CPU
     try {
         const cpuLoad = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'").toString().trim());
-        
+
         if (cpuLoad > config.THRESHOLDS.CPU) {
             state.resources.cpu.consecutive_high = (state.resources.cpu.consecutive_high || 0) + 1;
             log(`⚠️ CPU High detected (${cpuLoad.toFixed(1)}%). Count: ${state.resources.cpu.consecutive_high}`);
 
             const now = Date.now();
             const minCount = config.THRESHOLDS.CPU_ALERT_MIN_COUNT || 2;
-            
-            // Kirim notif hanya jika sudah memenuhi batas durasi di config
+
             if (state.resources.cpu.consecutive_high >= minCount) {
                 if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
                     let topProcs = '';
-                    try {
-                        topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`;
-                    } catch(e) {}
-                    
+                    try { topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`; } catch(e) {}
+
                     const label = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ PENGGUNAAN CPU TINGGI (Stabil)';
                     sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Durasi:</b> >1 Menit\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
-                    
                     state.resources.cpu.last_alert = now;
                     state.resources.cpu.is_high = true;
                 }
@@ -341,9 +314,7 @@ function checkResources() {
             const now = Date.now();
             if (!state.resources.ram.is_high || now - state.resources.ram.last_alert > COOLDOWN_MS) {
                 let topProcs = '';
-                try {
-                    topProcs = `\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n${getTopProcesses('pmem')}`;
-                } catch(e) {}
+                try { topProcs = `\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n${getTopProcesses('pmem')}`; } catch(e) {}
                 const label = state.resources.ram.is_high ? '⚠️ RAM MASIH TINGGI' : '⚠️ PENGGUNAAN RAM TINGGI';
                 sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
                 state.resources.ram.last_alert = now;
@@ -372,13 +343,115 @@ function checkResources() {
     } catch (e) {}
 }
 
+// --- FEATURE 3: SSL Certificate Check ---
+async function checkSSLDomains() {
+    const SSL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // cek setiap 6 jam
+    const now = Date.now();
+    if (state.last_ssl_check && now - state.last_ssl_check < SSL_CHECK_INTERVAL_MS) return;
+
+    log("🔒 Checking SSL Certificates...");
+    if (!state.ssl_cache) state.ssl_cache = {};
+    if (!state.ssl_alerts) state.ssl_alerts = {};
+
+    for (const domain of (config.SSL_DOMAINS || [])) {
+        try {
+            const output = execSync(
+                `echo | timeout 5 openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -enddate`,
+                { timeout: 8000 }
+            ).toString().trim();
+            const match = output.match(/notAfter=(.+)/);
+            if (!match) { state.ssl_cache[domain] = null; continue; }
+            const daysLeft = Math.floor((new Date(match[1]) - now) / (1000 * 60 * 60 * 24));
+            state.ssl_cache[domain] = daysLeft;
+
+            if (daysLeft <= config.THRESHOLDS.SSL_WARN_DAYS) {
+                const lastAlert = state.ssl_alerts[domain] || 0;
+                if (now - lastAlert > 24 * 60 * 60 * 1000) {
+                    const urgency = daysLeft <= 3 ? '🚨' : '⚠️';
+                    await sendTelegram(`${urgency} <b>SSL HAMPIR EXPIRED</b>\n\n<b>Domain:</b> ${domain}\n<b>Sisa:</b> ${daysLeft} hari\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Perbarui segera sebelum expired!`);
+                    log(`⚠️ SSL expiring: ${domain} (${daysLeft} hari)`);
+                    state.ssl_alerts[domain] = now;
+                }
+            }
+        } catch (e) {
+            state.ssl_cache[domain] = null;
+            log(`Error SSL ${domain}: ${e.message}`);
+        }
+    }
+    state.last_ssl_check = now;
+}
+
+// --- FEATURE 4: Backup Summary ---
+function getBackupSummary() {
+    if (!config.BACKUP_DIRS || config.BACKUP_DIRS.length === 0) return null;
+
+    const lines = [];
+    for (const backup of config.BACKUP_DIRS) {
+        try {
+            const latest = execSync(
+                `find ${backup.dir} -type f \\( -name "*.sql.gz" -o -name "*.tar.gz" \\) -printf '%T@ %p\\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-`
+            ).toString().trim();
+
+            if (!latest) {
+                lines.push(`🔴 ${backup.name}: tidak ada file backup`);
+                continue;
+            }
+
+            const stat = fs.statSync(latest);
+            const ageHours = Math.floor((Date.now() - stat.mtimeMs) / (1000 * 60 * 60));
+            const sizeMB = (stat.size / 1024 / 1024).toFixed(1);
+            const icon = ageHours <= 13 ? '✅' : '⚠️';
+            lines.push(`${icon} ${backup.name}: ${sizeMB} MB (${ageHours}j lalu)`);
+        } catch (e) {
+            lines.push(`⚠️ ${backup.name}: gagal cek`);
+        }
+    }
+    return lines.join('\n');
+}
+
+// --- FEATURE 5: PM2 Crash Loop Detection ---
+async function checkPM2Crashes() {
+    try {
+        const output = execSync('pm2 jlist', { timeout: 5000 }).toString();
+        const processes = JSON.parse(output);
+
+        if (!state.pm2_restarts) state.pm2_restarts = {};
+
+        for (const proc of processes) {
+            const name = proc.name;
+            const restarts = proc.pm2_env?.restart_time || 0;
+            const status = proc.pm2_env?.status;
+            const prevRestarts = state.pm2_restarts[name + '_count'];
+            const prevStatus = state.pm2_restarts[name + '_status'];
+
+            // Crash loop: restart naik >= 3 dalam satu interval cek
+            if (prevRestarts !== undefined && (restarts - prevRestarts) >= 3) {
+                await sendTelegram(`🚨 <b>PM2 CRASH LOOP TERDETEKSI!</b>\n\n<b>Process:</b> ${name}\n<b>Total Restart:</b> ${restarts}x\n<b>Naik:</b> +${restarts - prevRestarts}x dalam 1 menit\n<b>Status:</b> ${status}\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Cek log: <code>pm2 logs ${name} --lines 30</code>`);
+                log(`🚨 PM2 crash loop: ${name} (+${restarts - prevRestarts} restarts)`);
+            }
+
+            // Status berubah jadi errored
+            if (status === 'errored' && prevStatus && prevStatus !== 'errored') {
+                await sendTelegram(`🔴 <b>PM2 PROCESS ERROR</b>\n\n<b>Process:</b> ${name}\n<b>Status:</b> errored\n<b>Total Restart:</b> ${restarts}x\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Cek log: <code>pm2 logs ${name} --lines 30</code>`);
+                log(`🔴 PM2 errored: ${name}`);
+            }
+
+            state.pm2_restarts[name + '_count'] = restarts;
+            state.pm2_restarts[name + '_status'] = status;
+        }
+    } catch (e) {
+        log(`Error checking PM2: ${e.message}`);
+    }
+}
+
+// --- DAILY REPORT ---
 async function sendDailyReport() {
     const today = new Date().toDateString();
     if (state.last_daily_report === today) return;
 
     log("📬 Generating Daily Report...");
-    
-    // Get Disk & RAM Stats
+
+    // Resource stats
     let diskUsage = "Unknown";
     let ramUsage = "Unknown";
     try {
@@ -386,12 +459,49 @@ async function sendDailyReport() {
         ramUsage = execSync("free -h | grep Mem | awk '{print $3 \" / \" $2}'").toString().trim();
     } catch (e) {}
 
-    // Simple Report Stats
-    let endpointStatus = Object.entries(state.endpoints).map(([url, status]) => `${status === 'UP' ? '✅' : '🔴'} ${url.replace('https://', '')}`).join('\n');
-    let serviceStatus = Object.entries(state.services).map(([name, status]) => `${status === 'active' ? '✅' : '🚨'} ${name}`).join('\n');
+    // Endpoint & service status
+    const endpointStatus = Object.entries(state.endpoints)
+        .map(([url, status]) => `${status === 'UP' ? '✅' : '🔴'} ${url.replace('https://', '')}`)
+        .join('\n') || '—';
+    const serviceStatus = Object.entries(state.services)
+        .map(([name, status]) => `${status === 'active' ? '✅' : '🚨'} ${name}`)
+        .join('\n') || '—';
 
-    const report = `📊 <b>LAPORAN SERVER HARIAN</b>\n\n<b>Server:</b> ${config.SERVER_NAME}\n<b>Tanggal:</b> ${today}\n\n<b>Kapasitas Tersisa:</b>\n💾 Disk: ${diskUsage}\n🧠 RAM: ${ramUsage}\n\n<b>Status Layanan:</b>\n${serviceStatus}\n\n<b>Pantauan Endpoint:</b>\n${endpointStatus}\n\n<i>✓ Semua sistem berjalan normal.</i>`;
-    
+    // SSL expiry dari cache
+    let sslSection = '';
+    const sslEntries = Object.entries(state.ssl_cache || {});
+    if (sslEntries.length > 0) {
+        const sslLines = sslEntries.map(([domain, days]) => {
+            if (days === null) return `❓ ${domain}: tidak bisa dicek`;
+            const icon = days <= 7 ? '🚨' : days <= 14 ? '⚠️' : '✅';
+            return `${icon} ${domain}: ${days} hari`;
+        }).join('\n');
+        sslSection = `\n\n<b>🔒 SSL Sertifikat:</b>\n${sslLines}`;
+    }
+
+    // Backup summary
+    let backupSection = '';
+    const backupSummary = getBackupSummary();
+    if (backupSummary) {
+        backupSection = `\n\n<b>💾 Backup Terakhir:</b>\n${backupSummary}`;
+    }
+
+    // PM2 process summary
+    let pm2Section = '';
+    try {
+        const pm2Output = execSync('pm2 jlist', { timeout: 5000 }).toString();
+        const pm2Procs = JSON.parse(pm2Output);
+        const pm2Lines = pm2Procs.map(p => {
+            const status = p.pm2_env?.status;
+            const restarts = p.pm2_env?.restart_time || 0;
+            const icon = status === 'online' ? '✅' : status === 'stopped' ? '⏹' : '🔴';
+            return `${icon} ${p.name} (restart: ${restarts}x)`;
+        }).join('\n');
+        pm2Section = `\n\n<b>⚙️ PM2 Processes:</b>\n${pm2Lines}`;
+    } catch (e) {}
+
+    const report = `📊 <b>LAPORAN SERVER HARIAN</b>\n\n<b>Server:</b> ${config.SERVER_NAME}\n<b>Tanggal:</b> ${today}\n\n<b>Kapasitas:</b>\n💾 Disk: ${diskUsage}\n🧠 RAM: ${ramUsage}\n\n<b>Status Layanan:</b>\n${serviceStatus}\n\n<b>Pantauan Endpoint:</b>\n${endpointStatus}${sslSection}${backupSection}${pm2Section}`;
+
     await sendTelegram(report);
     state.last_daily_report = today;
 }
@@ -403,10 +513,11 @@ async function runMonitor() {
         checkServices();
         checkResources();
         await checkWhatsApp();
+        await checkPM2Crashes();
+        await checkSSLDomains();
 
-        // Report Logic (Check once an hour if it's report time)
         const hour = new Date().getHours();
-        if (hour === 8) { // Send at 8 AM
+        if (hour === 8) {
             await sendDailyReport();
         }
 
