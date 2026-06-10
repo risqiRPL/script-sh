@@ -433,13 +433,19 @@ async function sendDailyReport() {
         ramLine  = execSync("free -h | grep Mem | awk '{print $3\"/\"$2}'").toString().trim();
     } catch (e) {}
 
-    // Layanan & Endpoint summary
+    // Layanan summary
     const totalServices  = Object.keys(state.services).length;
     const activeServices = Object.values(state.services).filter(s => s === 'active').length;
-    const totalEndpoints = Object.keys(state.endpoints).length;
-    const upEndpoints    = Object.values(state.endpoints).filter(s => s === 'UP').length;
-    const svcIcon  = activeServices === totalServices  ? '🟢' : '🔴';
-    const epIcon   = upEndpoints    === totalEndpoints ? '🟢' : '🔴';
+    const svcIcon = activeServices === totalServices ? '🟢' : '🔴';
+
+    // Endpoint detail — pakai config sebagai acuan, bukan state mentah
+    const epList = config.ENDPOINTS.map(item => {
+        const s = state.endpoints[item.url] || 'UNKNOWN';
+        return { name: item.name, host: item.url.replace('https://', '').replace('http://', ''), status: s };
+    });
+    const upCount = epList.filter(e => e.status === 'UP').length;
+    const epIcon  = upCount === epList.length ? '🟢' : '🔴';
+    const epRows  = epList.map(e => `  ${e.status === 'UP' ? '✅' : '🔴'} ${e.host}`).join('\n');
 
     // SSL — hanya tampilkan yang bermasalah, sisanya ringkas
     let sslSection = '';
@@ -462,41 +468,42 @@ async function sendDailyReport() {
     // Backup
     let backupSection = '';
     const backupSummary = getBackupSummary();
-    if (backupSummary) {
-        backupSection = `\n\n💾 <b>Backup</b>\n${backupSummary}`;
-    }
+    if (backupSummary) backupSection = `\n\n💾 <b>Backup</b>\n${backupSummary}`;
 
-    // PM2
+    // PM2 — tiap process satu baris dengan nama + status + restart count
     let pm2Section = '';
     try {
         const pm2Procs = JSON.parse(execSync('pm2 jlist', { timeout: 5000 }).toString());
-        const online  = pm2Procs.filter(p => p.pm2_env?.status === 'online');
-        const stopped = pm2Procs.filter(p => p.pm2_env?.status === 'stopped');
-        const errored = pm2Procs.filter(p => p.pm2_env?.status === 'errored');
-        const pm2Icon = errored.length > 0 ? '🔴' : '🟢';
+        const onlineCount  = pm2Procs.filter(p => p.pm2_env?.status === 'online').length;
+        const stoppedCount = pm2Procs.filter(p => p.pm2_env?.status === 'stopped').length;
+        const erroredCount = pm2Procs.filter(p => p.pm2_env?.status === 'errored').length;
+        const pm2Icon = erroredCount > 0 ? '🔴' : '🟢';
 
-        const onlineLines = online.map(p => `${p.name}(${p.pm2_env?.restart_time || 0}↺)`).join(' · ');
-        const stoppedLine = stopped.length > 0 ? `\n  ⏹ stopped: ${stopped.map(p => p.name).join(', ')}` : '';
-        const erroredLine = errored.length > 0 ? `\n  🔴 errored: ${errored.map(p => p.name).join(', ')}` : '';
+        const maxLen = Math.max(...pm2Procs.map(p => p.name.length));
+        const pm2Rows = pm2Procs.map(p => {
+            const st = p.pm2_env?.status;
+            const icon = st === 'online' ? '✅' : st === 'stopped' ? '⏹' : '🔴';
+            const restarts = p.pm2_env?.restart_time || 0;
+            const restartStr = st === 'online' ? `${restarts}↺` : '—';
+            return `  ${icon} ${p.name.padEnd(maxLen)}  ${restartStr}`;
+        }).join('\n');
 
-        pm2Section = `\n\n⚙️ <b>PM2</b>  ${pm2Icon} ${online.length} online · ${stopped.length} stopped` +
-            (errored.length > 0 ? ` · ${errored.length} error` : '') +
-            `\n${onlineLines}${stoppedLine}${erroredLine}`;
+        const pm2Header = `⚙️ <b>PM2</b>  ${pm2Icon} ${onlineCount} online · ${stoppedCount} stopped` +
+            (erroredCount > 0 ? ` · ${erroredCount} error` : '');
+        pm2Section = `\n\n${pm2Header}\n<pre>${pm2Rows}</pre>`;
     } catch (e) {}
 
     const dateStr = new Date().toLocaleDateString('id-ID', {
-        weekday: 'short', day: '2-digit', month: 'short', year: 'numeric'
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
     });
 
     const report =
         `📊 <b>LAPORAN HARIAN</b> · ${config.SERVER_NAME}\n` +
-        `${dateStr}\n` +
-        `\n` +
+        `${dateStr}\n\n` +
         `💾 Disk  <code>${diskLine}</code>\n` +
-        `🧠 RAM   <code>${ramLine}</code>\n` +
-        `\n` +
+        `🧠 RAM   <code>${ramLine}</code>\n\n` +
         `${svcIcon} <b>Layanan</b>   <code>${activeServices}/${totalServices} aktif</code>\n` +
-        `${epIcon} <b>Endpoint</b>  <code>${upEndpoints}/${totalEndpoints} UP</code>` +
+        `${epIcon} <b>Endpoint</b>  <code>${upCount}/${epList.length} UP</code>\n${epRows}` +
         sslSection +
         backupSection +
         pm2Section;
