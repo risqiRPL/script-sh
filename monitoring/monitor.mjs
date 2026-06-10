@@ -8,7 +8,6 @@ const CONFIG_PATH = './config.json';
 const STATE_PATH = './state.json';
 let config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
 
-// State storage (RAM + File persistence)
 let state = {
     endpoints: {},
     services: {},
@@ -44,9 +43,14 @@ function log(msg) {
     const timestamp = new Date().toLocaleString('id-ID');
     const line = `[${timestamp}] ${msg}`;
     console.log(line);
-    try {
-        fs.appendFileSync(config.LOG_FILE, line + '\n');
-    } catch (e) {}
+    try { fs.appendFileSync(config.LOG_FILE, line + '\n'); } catch (e) {}
+}
+
+function ts() {
+    return new Date().toLocaleString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+    }).replace(',', ' ·');
 }
 
 async function sendTelegram(message) {
@@ -68,7 +72,6 @@ async function sendTelegram(message) {
 
 // --- CHECKERS ---
 
-// WhatsApp Bot Monitor
 async function checkWhatsApp() {
     if (!config.WA_API) return;
     log('📱 Checking WhatsApp Devices...');
@@ -81,12 +84,12 @@ async function checkWhatsApp() {
         devices = json.data;
 
         if (!state.wa_server_up) {
-            sendTelegram(`✅ <b>BOT WHATSAPP ONLINE KEMBALI</b>\n\n<b>Server:</b> ${config.WA_API.name}\n<b>Status:</b> API merespons normal`);
+            sendTelegram(`✅ <b>WA BOT ONLINE</b> · ${config.WA_API.name}`);
             state.wa_server_up = true;
         }
     } catch (e) {
         if (state.wa_server_up !== false) {
-            sendTelegram(`🔴 <b>BOT WHATSAPP MATI</b>\n\n<b>Server:</b> ${config.WA_API.name}\n<b>Error:</b> ${e.message}\n<b>Aksi:</b> Cek PM2 / robot-wa.js`);
+            sendTelegram(`🔴 <b>WA BOT DOWN</b> · ${config.WA_API.name}\n↳ ${e.message}\n💡 <code>pm2 restart robot-wa</code>`);
             log(`🔴 WA Server down: ${e.message}`);
             state.wa_server_up = false;
         }
@@ -98,25 +101,25 @@ async function checkWhatsApp() {
 
         const prev = state.wa_devices[device.id];
         const curr = device.status;
-        const label = `<b>${device.name}</b> (${device.number || device.id})`;
+        const label = `${device.name} (${device.number || device.id})`;
 
         if (!prev) {
             if (curr === 'ready') {
-                sendTelegram(`🟢 <b>DEVICE WA BARU TERHUBUNG</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
+                sendTelegram(`🟢 <b>WA DEVICE TERHUBUNG</b>\n<code>${label}</code>`);
                 log(`🟢 WA Device baru: ${device.name}`);
             }
         } else if (prev === 'ready' && curr !== 'ready') {
-            sendTelegram(`🟡 <b>DEVICE WA TERPUTUS</b>\n\n📱 Device: ${label}\n⚠️ Status: ${curr}\n💡 Perlu scan ulang QR Code`);
+            sendTelegram(`🟡 <b>WA DEVICE TERPUTUS</b>\n<code>${label}</code> · status: ${curr}\nScan ulang QR Code diperlukan`);
             log(`🟡 WA Device terputus: ${device.name} (${curr})`);
         } else if (prev !== 'ready' && curr === 'ready') {
-            sendTelegram(`✅ <b>DEVICE WA TERHUBUNG KEMBALI</b>\n\n📱 Device: ${label}\n✅ Status: Siap digunakan`);
+            sendTelegram(`✅ <b>WA DEVICE PULIH</b> · <code>${label}</code>`);
             log(`✅ WA Device kembali: ${device.name}`);
         }
 
         state.wa_devices[device.id] = curr;
     }
 
-    // --- CEK DEFAULT DEVICE ---
+    // --- DEFAULT DEVICE ---
     try {
         const cfgRes = await fetch(config.WA_API.url + '/api/pengaturan', { timeout: 5000 });
         const cfgJson = await cfgRes.json();
@@ -125,7 +128,7 @@ async function checkWhatsApp() {
 
         if (!defaultId) {
             if (prevDefault !== 'UNSET') {
-                sendTelegram(`⚠️ <b>DEFAULT DEVICE WA BELUM DI-SET</b>\n\n📱 Tidak ada device default aktif.\n💡 Set default device agar pesan otomatis bisa terkirim.\n<b>Server:</b> ${config.WA_API.name}`);
+                sendTelegram(`⚠️ <b>DEFAULT DEVICE WA KOSONG</b>\nPesan otomatis tidak akan terkirim\nSet device default di pengaturan`);
                 log('⚠️ WA default device belum di-set');
                 state.wa_devices['__default__'] = 'UNSET';
             }
@@ -137,20 +140,20 @@ async function checkWhatsApp() {
             if (prevDefault && prevDefault !== 'UNSET' && prevDefault !== defaultId) {
                 const prevDevice = devices.find(d => d.id === prevDefault);
                 const prevName = prevDevice ? prevDevice.name : prevDefault;
-                sendTelegram(`🔄 <b>DEFAULT DEVICE WA BERUBAH</b>\n\n📤 Sebelumnya: <b>${prevName}</b>\n📥 Sekarang: <b>${defaultName}</b>\n<b>Server:</b> ${config.WA_API.name}`);
+                sendTelegram(`🔄 <b>DEFAULT DEVICE WA BERUBAH</b>\n${prevName} → <b>${defaultName}</b>`);
                 log(`🔄 WA default device berubah: ${prevName} → ${defaultName}`);
             }
 
             if (defaultStatus !== 'ready') {
                 const alertKey = '__default_down__';
                 if (!state.wa_devices[alertKey]) {
-                    sendTelegram(`🚨 <b>DEFAULT DEVICE WA TERPUTUS!</b>\n\n📱 Device: <b>${defaultName}</b>\n⚠️ Status: ${defaultStatus}\n💡 Pesan otomatis TIDAK AKAN TERKIRIM sampai device reconnect!\n<b>Server:</b> ${config.WA_API.name}`);
+                    sendTelegram(`🚨 <b>DEFAULT DEVICE WA TERPUTUS!</b>\n<b>${defaultName}</b> · status: ${defaultStatus}\n⛔ Pesan otomatis berhenti sampai device reconnect`);
                     log(`🚨 WA default device terputus: ${defaultName}`);
                     state.wa_devices[alertKey] = true;
                 }
             } else {
                 if (state.wa_devices['__default_down__']) {
-                    sendTelegram(`✅ <b>DEFAULT DEVICE WA NORMAL KEMBALI</b>\n\n📱 Device: <b>${defaultName}</b>\n✅ Status: Siap mengirim pesan\n<b>Server:</b> ${config.WA_API.name}`);
+                    sendTelegram(`✅ <b>DEFAULT DEVICE PULIH</b> · ${defaultName}\nPesan otomatis kembali aktif`);
                     log(`✅ WA default device kembali: ${defaultName}`);
                     state.wa_devices['__default_down__'] = false;
                 }
@@ -168,14 +171,10 @@ async function checkEndpoints() {
     for (const item of config.ENDPOINTS) {
         let status = 'UP';
         let errorMsg = '';
-        let startTime = Date.now();
 
         try {
             const res = await fetch(item.url, { timeout: 10000 });
-            if (!res.ok) {
-                status = 'DOWN';
-                errorMsg = `HTTP ${res.status}`;
-            }
+            if (!res.ok) { status = 'DOWN'; errorMsg = `HTTP ${res.status}`; }
         } catch (e) {
             status = 'DOWN';
             errorMsg = e.message;
@@ -184,11 +183,11 @@ async function checkEndpoints() {
         const prevState = state.endpoints[item.url] || 'UP';
 
         if (status === 'DOWN' && prevState === 'UP') {
-            await sendTelegram(`🔴 <b>ENDPOINT MATI</b>\n\n<b>Nama:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Error:</b> ${errorMsg}\n<b>Server:</b> ${config.SERVER_NAME}`);
-            log(`🔴 Alert Sent: ${item.name} is DOWN`);
+            await sendTelegram(`🔴 <b>ENDPOINT DOWN</b>\n<b>${item.name}</b> · <code>${item.url.replace('https://', '')}</code>\n↳ ${errorMsg}`);
+            log(`🔴 DOWN: ${item.name}`);
         } else if (status === 'UP' && prevState === 'DOWN') {
-            await sendTelegram(`🟢 <b>ENDPOINT NORMAL KEMBALI</b>\n\n<b>Nama:</b> ${item.name}\n<b>URL:</b> ${item.url}\n<b>Status:</b> Kembali Online\n<b>Server:</b> ${config.SERVER_NAME}`);
-            log(`🟢 Alert Sent: ${item.name} is UP`);
+            await sendTelegram(`🟢 <b>ENDPOINT PULIH</b> · ${item.name}`);
+            log(`🟢 UP: ${item.name}`);
         }
 
         state.endpoints[item.url] = status;
@@ -202,46 +201,39 @@ function checkServices() {
         try {
             const output = execSync(`systemctl is-active ${item.service}`).toString().trim();
             isRunning = (output === 'active');
-        } catch (e) {
-            isRunning = false;
-        }
+        } catch (e) { isRunning = false; }
 
         const prevStatus = state.services[item.service] || 'active';
         const currentStatus = isRunning ? 'active' : 'inactive';
 
         if (currentStatus === 'inactive' && prevStatus === 'active') {
-            sendTelegram(`🚨 <b>SERVICE MATI</b>\n\n<b>Layanan:</b> ${item.name} (${item.service})\n<b>Status:</b> Tidak Aktif!\n<b>Server:</b> ${config.SERVER_NAME}`);
-            log(`🚨 Alert Sent: ${item.name} is Inactive`);
+            sendTelegram(`🚨 <b>SERVICE MATI</b>\n${item.name} · <code>${item.service}</code>\n💡 <code>systemctl restart ${item.service}</code>`);
+            log(`🚨 Service mati: ${item.name}`);
         } else if (currentStatus === 'active' && prevStatus === 'inactive') {
-            sendTelegram(`✅ <b>SERVICE NORMAL KEMBALI</b>\n\n<b>Layanan:</b> ${item.name}\n<b>Status:</b> Sedang Berjalan\n<b>Server:</b> ${config.SERVER_NAME}`);
-            log(`✅ Alert Sent: ${item.name} is Active`);
+            sendTelegram(`✅ <b>SERVICE PULIH</b> · ${item.name}`);
+            log(`✅ Service pulih: ${item.name}`);
         }
 
         state.services[item.service] = currentStatus;
     }
 }
 
-// --- HELPER: label proses dengan nama yang lebih informatif ---
 function labelProcess(rawCmd) {
     if (rawCmd.includes('containerd-shim') || rawCmd.includes('runc')) return '[Docker] container-runtime';
-    if (rawCmd.includes('/usr/bin/dockerd')) return '[Docker] dockerd (engine)';
+    if (rawCmd.includes('/usr/bin/dockerd')) return '[Docker] dockerd';
     if (rawCmd.includes('/usr/bin/containerd')) return '[Docker] containerd';
-
     const nodeMatch = rawCmd.match(/node\s+([^\s]+)/);
     if (nodeMatch) {
         let script = nodeMatch[1];
-        if (script === '-e' || script.startsWith('--')) return `[Node] inline-script (${script})`;
-        script = script.split('/').slice(-2).join('/');
-        return `[Node] ${script}`;
+        if (script === '-e' || script.startsWith('--')) return `[Node] inline`;
+        return `[Node] ${script.split('/').slice(-2).join('/')}`;
     }
-
-    if (rawCmd.startsWith('postgres:')) return `[DB] ${rawCmd.substring(0, 45)}`;
-    if (rawCmd.includes('supabase')) return `[Supabase] ${rawCmd.split('/').pop().substring(0, 30)}`;
+    if (rawCmd.startsWith('postgres:')) return `[DB] ${rawCmd.substring(0, 40)}`;
+    if (rawCmd.includes('supabase')) return `[Supabase] ${rawCmd.split('/').pop().substring(0, 25)}`;
     if (rawCmd.includes('apache2') || rawCmd.includes('httpd')) return '[Web] apache2';
     if (rawCmd.includes('nginx')) return '[Web] nginx';
     if (rawCmd.includes('php')) return '[Web] php-fpm';
-
-    return rawCmd.substring(0, 45).trim();
+    return rawCmd.substring(0, 40).trim();
 }
 
 function getTopProcesses(sortField, count = 5) {
@@ -250,22 +242,18 @@ function getTopProcesses(sortField, count = 5) {
             const topOutput = execSync(`top -b -n 1 | tail -n +8 | head -n ${count}`).toString().trim().split('\n');
             return topOutput.map(line => {
                 const parts = line.trim().split(/\s+/);
-                const usage = parts[8];
-                const cmd = parts.slice(11).join(' ');
-                return `▪ ${labelProcess(cmd)} (${usage}%)`;
+                return `  ▪ ${labelProcess(parts.slice(11).join(' '))} (${parts[8]}%)`;
             }).join('\n');
         } else {
             const psOutput = execSync(`ps -eo ${sortField},args --sort=-${sortField} | head -n ${count + 1}`)
                 .toString().trim().split('\n').slice(1);
             return psOutput.map(line => {
                 const parts = line.trim().split(/\s+/);
-                const usage = parts[0];
-                const rawCmd = parts.slice(1).join(' ');
-                return `▪ ${labelProcess(rawCmd)} (${usage}%)`;
+                return `  ▪ ${labelProcess(parts.slice(1).join(' '))} (${parts[0]}%)`;
             }).join('\n');
         }
     } catch (e) {
-        return `⚠️ Gagal mengambil daftar proses: ${e.message}`;
+        return `  ⚠️ Gagal ambil proses: ${e.message}`;
     }
 }
 
@@ -274,78 +262,73 @@ function checkResources() {
     const COOLDOWN_MS = 30 * 60 * 1000;
     const DISK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
-    // 1. CPU
+    // CPU
     try {
         const cpuLoad = parseFloat(execSync("top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - $1}'").toString().trim());
 
         if (cpuLoad > config.THRESHOLDS.CPU) {
             state.resources.cpu.consecutive_high = (state.resources.cpu.consecutive_high || 0) + 1;
-            log(`⚠️ CPU High detected (${cpuLoad.toFixed(1)}%). Count: ${state.resources.cpu.consecutive_high}`);
-
             const now = Date.now();
             const minCount = config.THRESHOLDS.CPU_ALERT_MIN_COUNT || 2;
 
             if (state.resources.cpu.consecutive_high >= minCount) {
                 if (!state.resources.cpu.is_high || now - state.resources.cpu.last_alert > COOLDOWN_MS) {
                     let topProcs = '';
-                    try { topProcs = `\n\n<b>🔥 Top 5 Proses Besar:</b>\n${getTopProcesses('pcpu')}`; } catch(e) {}
-
-                    const label = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ PENGGUNAAN CPU TINGGI (Stabil)';
-                    sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Durasi:</b> >1 Menit\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
+                    try { topProcs = `\n<b>Top Proses:</b>\n${getTopProcesses('pcpu')}`; } catch(e) {}
+                    const tag = state.resources.cpu.is_high ? '⚠️ CPU MASIH TINGGI' : '⚠️ CPU TINGGI';
+                    sendTelegram(`${tag} · <code>${cpuLoad.toFixed(1)}%</code> (batas ${config.THRESHOLDS.CPU}%)${topProcs}`);
                     state.resources.cpu.last_alert = now;
                     state.resources.cpu.is_high = true;
                 }
             }
         } else {
             if (state.resources.cpu.is_high) {
-                sendTelegram(`🟢 <b>CPU NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${cpuLoad.toFixed(1)}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.CPU}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                sendTelegram(`🟢 <b>CPU NORMAL</b> · <code>${cpuLoad.toFixed(1)}%</code>`);
                 state.resources.cpu.is_high = false;
             }
             state.resources.cpu.consecutive_high = 0;
         }
-    } catch (e) {
-        log(`Error checking CPU: ${e.message}`);
-    }
+    } catch (e) { log(`Error CPU: ${e.message}`); }
 
-    // 2. RAM
+    // RAM
     try {
         const ramUsage = parseInt(execSync("free | grep Mem | awk '{print $3/$2 * 100.0}'").toString().trim());
         if (ramUsage > config.THRESHOLDS.RAM) {
             const now = Date.now();
             if (!state.resources.ram.is_high || now - state.resources.ram.last_alert > COOLDOWN_MS) {
                 let topProcs = '';
-                try { topProcs = `\n\n<b>🧠 Top 5 Penyedot RAM:</b>\n${getTopProcesses('pmem')}`; } catch(e) {}
-                const label = state.resources.ram.is_high ? '⚠️ RAM MASIH TINGGI' : '⚠️ PENGGUNAAN RAM TINGGI';
-                sendTelegram(`${label}\n\n<b>Penggunaan:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}${topProcs}`);
+                try { topProcs = `\n<b>Top Proses:</b>\n${getTopProcesses('pmem')}`; } catch(e) {}
+                const tag = state.resources.ram.is_high ? '⚠️ RAM MASIH TINGGI' : '⚠️ RAM TINGGI';
+                sendTelegram(`${tag} · <code>${ramUsage}%</code> (batas ${config.THRESHOLDS.RAM}%)${topProcs}`);
                 state.resources.ram.last_alert = now;
                 state.resources.ram.is_high = true;
             }
         } else if (state.resources.ram.is_high) {
-            sendTelegram(`🟢 <b>RAM NORMAL KEMBALI</b>\n\n<b>Penggunaan Saat Ini:</b> ${ramUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.RAM}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+            sendTelegram(`🟢 <b>RAM NORMAL</b> · <code>${ramUsage}%</code>`);
             state.resources.ram.is_high = false;
         }
     } catch (e) {}
 
-    // 3. Disk
+    // Disk
     try {
         const diskUsage = parseInt(execSync("df -h / | tail -1 | awk '{print $5}' | sed 's/%//'").toString().trim());
         if (diskUsage > config.THRESHOLDS.DISK) {
             const now = Date.now();
             if (!state.resources.disk.is_high || now - state.resources.disk.last_alert > DISK_COOLDOWN_MS) {
-                sendTelegram(`🚨 <b>PENYIMPANAN HAMPIR PENUH</b>\n\n<b>Terpakai:</b> ${diskUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+                sendTelegram(`🚨 <b>DISK HAMPIR PENUH</b> · <code>${diskUsage}%</code> (batas ${config.THRESHOLDS.DISK}%)\nHapus file lama atau perluas kapasitas`);
                 state.resources.disk.last_alert = now;
                 state.resources.disk.is_high = true;
             }
         } else if (state.resources.disk.is_high) {
-            sendTelegram(`🟢 <b>PENYIMPANAN KEMBALI AMAN</b>\n\n<b>Terpakai:</b> ${diskUsage}%\n<b>Batas Maksimal:</b> ${config.THRESHOLDS.DISK}%\n<b>Server:</b> ${config.SERVER_NAME}`);
+            sendTelegram(`🟢 <b>DISK AMAN</b> · <code>${diskUsage}%</code>`);
             state.resources.disk.is_high = false;
         }
     } catch (e) {}
 }
 
-// --- FEATURE 3: SSL Certificate Check ---
+// --- SSL Check (setiap 6 jam) ---
 async function checkSSLDomains() {
-    const SSL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // cek setiap 6 jam
+    const SSL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
     const now = Date.now();
     if (state.last_ssl_check && now - state.last_ssl_check < SSL_CHECK_INTERVAL_MS) return;
 
@@ -368,7 +351,7 @@ async function checkSSLDomains() {
                 const lastAlert = state.ssl_alerts[domain] || 0;
                 if (now - lastAlert > 24 * 60 * 60 * 1000) {
                     const urgency = daysLeft <= 3 ? '🚨' : '⚠️';
-                    await sendTelegram(`${urgency} <b>SSL HAMPIR EXPIRED</b>\n\n<b>Domain:</b> ${domain}\n<b>Sisa:</b> ${daysLeft} hari\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Perbarui segera sebelum expired!`);
+                    await sendTelegram(`${urgency} <b>SSL HAMPIR EXPIRED</b>\n<code>${domain}</code> · sisa ${daysLeft} hari\n💡 <code>certbot renew --cert-name ${domain}</code>`);
                     log(`⚠️ SSL expiring: ${domain} (${daysLeft} hari)`);
                     state.ssl_alerts[domain] = now;
                 }
@@ -381,7 +364,7 @@ async function checkSSLDomains() {
     state.last_ssl_check = now;
 }
 
-// --- FEATURE 4: Backup Summary ---
+// --- Backup Summary ---
 function getBackupSummary() {
     if (!config.BACKUP_DIRS || config.BACKUP_DIRS.length === 0) return null;
 
@@ -391,17 +374,12 @@ function getBackupSummary() {
             const latest = execSync(
                 `find ${backup.dir} -type f \\( -name "*.sql.gz" -o -name "*.tar.gz" \\) -printf '%T@ %p\\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-`
             ).toString().trim();
-
-            if (!latest) {
-                lines.push(`🔴 ${backup.name}: tidak ada file backup`);
-                continue;
-            }
-
+            if (!latest) { lines.push(`🔴 ${backup.name}: tidak ada backup`); continue; }
             const stat = fs.statSync(latest);
             const ageHours = Math.floor((Date.now() - stat.mtimeMs) / (1000 * 60 * 60));
             const sizeMB = (stat.size / 1024 / 1024).toFixed(1);
             const icon = ageHours <= 13 ? '✅' : '⚠️';
-            lines.push(`${icon} ${backup.name}: ${sizeMB} MB (${ageHours}j lalu)`);
+            lines.push(`${icon} ${backup.name}  ${sizeMB} MB · ${ageHours}j lalu`);
         } catch (e) {
             lines.push(`⚠️ ${backup.name}: gagal cek`);
         }
@@ -409,12 +387,11 @@ function getBackupSummary() {
     return lines.join('\n');
 }
 
-// --- FEATURE 5: PM2 Crash Loop Detection ---
+// --- PM2 Crash Detection ---
 async function checkPM2Crashes() {
     try {
         const output = execSync('pm2 jlist', { timeout: 5000 }).toString();
         const processes = JSON.parse(output);
-
         if (!state.pm2_restarts) state.pm2_restarts = {};
 
         for (const proc of processes) {
@@ -424,15 +401,13 @@ async function checkPM2Crashes() {
             const prevRestarts = state.pm2_restarts[name + '_count'];
             const prevStatus = state.pm2_restarts[name + '_status'];
 
-            // Crash loop: restart naik >= 3 dalam satu interval cek
             if (prevRestarts !== undefined && (restarts - prevRestarts) >= 3) {
-                await sendTelegram(`🚨 <b>PM2 CRASH LOOP TERDETEKSI!</b>\n\n<b>Process:</b> ${name}\n<b>Total Restart:</b> ${restarts}x\n<b>Naik:</b> +${restarts - prevRestarts}x dalam 1 menit\n<b>Status:</b> ${status}\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Cek log: <code>pm2 logs ${name} --lines 30</code>`);
-                log(`🚨 PM2 crash loop: ${name} (+${restarts - prevRestarts} restarts)`);
+                await sendTelegram(`🚨 <b>PM2 CRASH LOOP</b>\n<code>${name}</code> · +${restarts - prevRestarts} restart (total: ${restarts}x)\n💡 <code>pm2 logs ${name} --lines 30</code>`);
+                log(`🚨 PM2 crash loop: ${name} (+${restarts - prevRestarts})`);
             }
 
-            // Status berubah jadi errored
             if (status === 'errored' && prevStatus && prevStatus !== 'errored') {
-                await sendTelegram(`🔴 <b>PM2 PROCESS ERROR</b>\n\n<b>Process:</b> ${name}\n<b>Status:</b> errored\n<b>Total Restart:</b> ${restarts}x\n<b>Server:</b> ${config.SERVER_NAME}\n\n💡 Cek log: <code>pm2 logs ${name} --lines 30</code>`);
+                await sendTelegram(`🔴 <b>PM2 PROCESS ERROR</b>\n<code>${name}</code> · status: errored · total: ${restarts}x restart\n💡 <code>pm2 logs ${name} --lines 30</code>`);
                 log(`🔴 PM2 errored: ${name}`);
             }
 
@@ -440,7 +415,7 @@ async function checkPM2Crashes() {
             state.pm2_restarts[name + '_status'] = status;
         }
     } catch (e) {
-        log(`Error checking PM2: ${e.message}`);
+        log(`Error PM2: ${e.message}`);
     }
 }
 
@@ -451,56 +426,80 @@ async function sendDailyReport() {
 
     log("📬 Generating Daily Report...");
 
-    // Resource stats
-    let diskUsage = "Unknown";
-    let ramUsage = "Unknown";
+    // Resource
+    let diskLine = '—', ramLine = '—';
     try {
-        diskUsage = execSync("df -h / | tail -1 | awk '{print $3 \" / \" $2 \" (\" $5 \")\"}'").toString().trim();
-        ramUsage = execSync("free -h | grep Mem | awk '{print $3 \" / \" $2}'").toString().trim();
+        diskLine = execSync("df -h / | tail -1 | awk '{print $3\"/\"$2\" (\"$5\")\"}' ").toString().trim();
+        ramLine  = execSync("free -h | grep Mem | awk '{print $3\"/\"$2}'").toString().trim();
     } catch (e) {}
 
-    // Endpoint & service status
-    const endpointStatus = Object.entries(state.endpoints)
-        .map(([url, status]) => `${status === 'UP' ? '✅' : '🔴'} ${url.replace('https://', '')}`)
-        .join('\n') || '—';
-    const serviceStatus = Object.entries(state.services)
-        .map(([name, status]) => `${status === 'active' ? '✅' : '🚨'} ${name}`)
-        .join('\n') || '—';
+    // Layanan & Endpoint summary
+    const totalServices  = Object.keys(state.services).length;
+    const activeServices = Object.values(state.services).filter(s => s === 'active').length;
+    const totalEndpoints = Object.keys(state.endpoints).length;
+    const upEndpoints    = Object.values(state.endpoints).filter(s => s === 'UP').length;
+    const svcIcon  = activeServices === totalServices  ? '🟢' : '🔴';
+    const epIcon   = upEndpoints    === totalEndpoints ? '🟢' : '🔴';
 
-    // SSL expiry dari cache
+    // SSL — hanya tampilkan yang bermasalah, sisanya ringkas
     let sslSection = '';
     const sslEntries = Object.entries(state.ssl_cache || {});
     if (sslEntries.length > 0) {
-        const sslLines = sslEntries.map(([domain, days]) => {
-            if (days === null) return `❓ ${domain}: tidak bisa dicek`;
-            const icon = days <= 7 ? '🚨' : days <= 14 ? '⚠️' : '✅';
-            return `${icon} ${domain}: ${days} hari`;
-        }).join('\n');
-        sslSection = `\n\n<b>🔒 SSL Sertifikat:</b>\n${sslLines}`;
+        const warn = sslEntries.filter(([, d]) => d !== null && d <= 30).sort((a, b) => a[1] - b[1]);
+        if (warn.length === 0) {
+            sslSection = `\n🔒 <b>SSL</b>  ${sslEntries.length} domain · semua aman`;
+        } else {
+            const warnLines = warn.map(([domain, days]) => {
+                const icon = days <= 3 ? '🚨' : days <= 7 ? '🔴' : '⚠️';
+                return `  ${icon} ${domain} — ${days} hari`;
+            }).join('\n');
+            const safeCount = sslEntries.length - warn.length;
+            sslSection = `\n🔒 <b>SSL</b>  ${warn.length} perlu perhatian\n${warnLines}` +
+                (safeCount > 0 ? `\n  ✅ ${safeCount} domain lainnya aman` : '');
+        }
     }
 
-    // Backup summary
+    // Backup
     let backupSection = '';
     const backupSummary = getBackupSummary();
     if (backupSummary) {
-        backupSection = `\n\n<b>💾 Backup Terakhir:</b>\n${backupSummary}`;
+        backupSection = `\n\n💾 <b>Backup</b>\n${backupSummary}`;
     }
 
-    // PM2 process summary
+    // PM2
     let pm2Section = '';
     try {
-        const pm2Output = execSync('pm2 jlist', { timeout: 5000 }).toString();
-        const pm2Procs = JSON.parse(pm2Output);
-        const pm2Lines = pm2Procs.map(p => {
-            const status = p.pm2_env?.status;
-            const restarts = p.pm2_env?.restart_time || 0;
-            const icon = status === 'online' ? '✅' : status === 'stopped' ? '⏹' : '🔴';
-            return `${icon} ${p.name} (restart: ${restarts}x)`;
-        }).join('\n');
-        pm2Section = `\n\n<b>⚙️ PM2 Processes:</b>\n${pm2Lines}`;
+        const pm2Procs = JSON.parse(execSync('pm2 jlist', { timeout: 5000 }).toString());
+        const online  = pm2Procs.filter(p => p.pm2_env?.status === 'online');
+        const stopped = pm2Procs.filter(p => p.pm2_env?.status === 'stopped');
+        const errored = pm2Procs.filter(p => p.pm2_env?.status === 'errored');
+        const pm2Icon = errored.length > 0 ? '🔴' : '🟢';
+
+        const onlineLines = online.map(p => `${p.name}(${p.pm2_env?.restart_time || 0}↺)`).join(' · ');
+        const stoppedLine = stopped.length > 0 ? `\n  ⏹ stopped: ${stopped.map(p => p.name).join(', ')}` : '';
+        const erroredLine = errored.length > 0 ? `\n  🔴 errored: ${errored.map(p => p.name).join(', ')}` : '';
+
+        pm2Section = `\n\n⚙️ <b>PM2</b>  ${pm2Icon} ${online.length} online · ${stopped.length} stopped` +
+            (errored.length > 0 ? ` · ${errored.length} error` : '') +
+            `\n${onlineLines}${stoppedLine}${erroredLine}`;
     } catch (e) {}
 
-    const report = `📊 <b>LAPORAN SERVER HARIAN</b>\n\n<b>Server:</b> ${config.SERVER_NAME}\n<b>Tanggal:</b> ${today}\n\n<b>Kapasitas:</b>\n💾 Disk: ${diskUsage}\n🧠 RAM: ${ramUsage}\n\n<b>Status Layanan:</b>\n${serviceStatus}\n\n<b>Pantauan Endpoint:</b>\n${endpointStatus}${sslSection}${backupSection}${pm2Section}`;
+    const dateStr = new Date().toLocaleDateString('id-ID', {
+        weekday: 'short', day: '2-digit', month: 'short', year: 'numeric'
+    });
+
+    const report =
+        `📊 <b>LAPORAN HARIAN</b> · ${config.SERVER_NAME}\n` +
+        `${dateStr}\n` +
+        `\n` +
+        `💾 Disk  <code>${diskLine}</code>\n` +
+        `🧠 RAM   <code>${ramLine}</code>\n` +
+        `\n` +
+        `${svcIcon} <b>Layanan</b>   <code>${activeServices}/${totalServices} aktif</code>\n` +
+        `${epIcon} <b>Endpoint</b>  <code>${upEndpoints}/${totalEndpoints} UP</code>` +
+        sslSection +
+        backupSection +
+        pm2Section;
 
     await sendTelegram(report);
     state.last_daily_report = today;
@@ -517,16 +516,14 @@ async function runMonitor() {
         await checkSSLDomains();
 
         const hour = new Date().getHours();
-        if (hour === 8) {
-            await sendDailyReport();
-        }
+        if (hour === 8) await sendDailyReport();
 
         saveState();
     } catch (e) {
-        log(`CRITICAL ERROR in monitor loop: ${e.message}`);
+        log(`CRITICAL ERROR: ${e.message}`);
     }
 }
 
 log(`🚀 FEZORA MONITOR V2 STARTED (Frequency: ${config.CHECK_INTERVAL_MS / 1000}s)`);
 setInterval(runMonitor, config.CHECK_INTERVAL_MS);
-runMonitor(); // Run once at start
+runMonitor();
