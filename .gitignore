@@ -55,3 +55,6 @@ Thumbs.db
 
 # ── Mail ──
 Maildir/
+.claude/
+.claude.json*
+.wget-hsts
